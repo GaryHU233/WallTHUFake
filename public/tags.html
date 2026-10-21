@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f2555a">
+  <title>热门标签 · WallTHU 校园墙</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body data-page="tags">
+  <header id="site-header"></header>
+
+  <main class="static-page">
+    <div class="container">
+      <article class="static-card">
+        <h1>热门标签</h1>
+        <p class="lead">发帖时在正文里加上 <code>#标签</code>，同类内容就会自动聚合到这里。</p>
+        <div id="tag-loading"><div class="skeleton" style="height:96px"></div></div>
+        <div class="tag-cloud" id="tag-cloud" style="margin-top:6px"></div>
+        <div id="tag-empty"></div>
+
+        <h2>试试这些分类</h2>
+        <div class="tag-cloud">
+          <a class="tag-pill" href="/?category=%E8%A1%A8%E7%99%BD%E6%8D%9E%E4%BA%BA">表白捞人</a>
+          <a class="tag-pill" href="/?category=%E5%A4%B1%E7%89%A9%E6%8B%9B%E9%A2%86">失物招领</a>
+          <a class="tag-pill" href="/?category=%E9%97%B2%E7%BD%AE%E4%BA%A4%E6%98%93">闲置交易</a>
+          <a class="tag-pill" href="/?category=%E6%B1%82%E5%8A%A9%E9%97%AE%E7%AD%94">求助问答</a>
+          <a class="tag-pill" href="/?category=%E6%A0%91%E6%B4%9E%E5%90%90%E6%A7%BD">树洞吐槽</a>
+          <a class="tag-pill" href="/?category=%E6%B4%BB%E5%8A%A8%E9%80%9A%E7%9F%A5">活动通知</a>
+        </div>
+
+        <div class="notice" style="margin-top:24px">
+          <span>🏷️</span>
+          <span>标签由发帖内容自动提取。请不要用标签堆砌无关关键词，否则会被管理员处理。</span>
+        </div>
+      </article>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/tags.js"></script>
+</body>
+</html>

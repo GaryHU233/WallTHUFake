@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f2555a">
+  <title>申诉 · WallTHU 校园墙</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body data-page="appeal">
+  <header id="site-header"></header>
+
+  <main class="static-page">
+    <div class="container">
+      <article class="static-card">
+        <h1>申诉</h1>
+        <p class="lead">帖子被删除、审核被误判，或者有其他情况需要管理员复核？在这里告诉我们。</p>
+
+        <form id="appeal-form" novalidate>
+          <div class="field">
+            <div class="field-label">帖子编号 <span class="hint">选填，可在帖子详情页链接中找到</span></div>
+            <input class="input" name="post_id" inputmode="numeric" maxlength="12"
+                   placeholder="例如：128">
+          </div>
+
+          <div class="field">
+            <div class="field-label">情况说明 <span class="hint">必填，5–1000 字</span></div>
+            <textarea class="textarea" name="content" maxlength="1000" required
+                      placeholder="请说明帖子内容、被删除 / 驳回的情况，以及你希望如何处理"></textarea>
+            <div class="counter" id="appeal-counter">0 / 1000</div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">联系方式 <span class="hint">选填，便于管理员回复你</span></div>
+            <input class="input" name="contact" maxlength="60" placeholder="QQ / 微信 / 邮箱">
+          </div>
+
+          <div class="field">
+            <div class="field-label">验证码</div>
+            <div id="appeal-captcha"></div>
+          </div>
+
+          <div class="notice">提交后请耐心等待，管理员会人工查看。恶意申诉可能被忽略。</div>
+
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:16px">提交申诉</button>
+        </form>
+
+        <div id="appeal-result"></div>
+
+        <h2>常见问题</h2>
+        <h3>为什么我的帖子一直在审核中？</h3>
+        <p>所有帖子都需要人工审核，通常会在收到后尽快处理。高峰期可能需要等待更久，请不要重复提交。</p>
+        <h3>帖子被驳回后还能恢复吗？</h3>
+        <p>如果认为属于误判，可以在上方提交申诉，附上帖子编号和说明，管理员会重新复核。</p>
+        <h3>为什么评论会消失？</h3>
+        <p>评论违反墙规（辱骂、广告、引战等）时会被隐藏或删除。如有异议同样可以申诉。</p>
+      </article>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/appeal.js"></script>
+</body>
+</html>

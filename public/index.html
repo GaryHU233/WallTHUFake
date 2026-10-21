@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f2555a">
+  <meta name="description" content="WallTHU 校园墙——匿名发帖、失物招领、闲置交易、求助问答、表白捞人。">
+  <title>WallTHU 校园墙</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main>
+    <div class="container">
+      <section class="hero">
+        <div class="hero-text">
+          <h1>校园里的每一句话，都值得被听见</h1>
+          <p>匿名发帖 · 人工审核 · 友善交流</p>
+        </div>
+        <a class="hero-link" href="/rules">发帖须知 →</a>
+      </section>
+
+      <div class="cat-bar">
+        <div class="cat-scroll" id="cat-scroll" role="tablist" aria-label="帖子分类"></div>
+      </div>
+
+      <div class="feed-toolbar">
+        <div class="sort-tabs" id="sort-tabs" role="tablist" aria-label="排序方式">
+          <button class="sort-tab active" data-sort="new" type="button">最新发布</button>
+          <button class="sort-tab" data-sort="hot" type="button">热门</button>
+          <button class="sort-tab" data-sort="pinned" type="button">置顶公告</button>
+        </div>
+        <div class="feed-count" id="feed-count"></div>
+      </div>
+
+      <div id="filter-banner"></div>
+      <section id="pinned-section" aria-label="置顶公告"></section>
+      <div class="feed" id="feed" aria-live="polite"></div>
+      <div id="feed-empty"></div>
+      <button class="load-more" id="load-more" type="button" hidden>加载更多</button>
+
+      <div class="notice brand" style="margin-top:22px">
+        <span>🛡️</span>
+        <span>所有帖子均经人工审核后展示。请勿发布人身攻击、挂人、广告或他人隐私信息；闲置交易请优先校内当面交易。</span>
+      </div>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <button class="fab" id="fab" type="button" aria-label="发布新帖子">
+    <span class="plus">+</span>发帖
+  </button>
+
+  <!-- 发帖弹层 -->
+  <div class="modal-overlay" id="post-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="post-modal-title">
+      <div class="modal-head">
+        <h2 id="post-modal-title">发布帖子</h2>
+        <button class="modal-close" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="post-form" novalidate>
+          <div class="field">
+            <div class="field-label">选择分类</div>
+            <select class="select" name="category" id="post-category" required></select>
+          </div>
+
+          <div class="field">
+            <div class="switch-row">
+              <div class="switch-text">
+                <b>匿名发布</b>
+                <span>关闭后将显示你填写的昵称</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="is-anonymous" name="is_anonymous" checked>
+                <span class="track"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field" id="nickname-field" hidden>
+            <div class="field-label">昵称 <span class="hint">必填，最多 20 字</span></div>
+            <input class="input" name="nickname" maxlength="20" placeholder="想让别人怎么称呼你？">
+          </div>
+
+          <div class="field">
+            <div class="field-label">
+              正文内容 <span class="hint">最多 2000 字</span>
+            </div>
+            <textarea class="textarea" name="content" id="post-content" maxlength="2000"
+                      placeholder="说点什么吧……&#10;可以加上 #标签 方便别人搜索，例如 #寻物 #图书馆" required></textarea>
+            <div class="counter" id="content-counter">0 / 2000</div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">图片 <span class="hint">最多 9 张，每张 ≤ 5MB</span></div>
+            <div class="upload-zone" id="upload-zone" tabindex="0" role="button"
+                 aria-label="点击选择图片">
+              <b>📷 点击或拖拽图片到这里</b>
+              <span>支持 JPG / PNG / GIF / WebP</span>
+            </div>
+            <input type="file" id="image-input" accept="image/*" multiple hidden>
+            <div class="preview-grid" id="preview-grid"></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">联系方式 <span class="hint">选填，会显示在帖子中</span></div>
+            <input class="input" name="contact" maxlength="60" placeholder="QQ / 微信（自愿填写）">
+          </div>
+
+          <div class="field">
+            <div class="field-label">验证码</div>
+            <div id="post-captcha"></div>
+          </div>
+
+          <div class="notice warn">
+            <span>⏳</span>
+            <span>提交后需要管理员审核，审核通过后才会对外展示。请勿重复提交。</span>
+          </div>
+
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:16px">
+            提交审核
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/home.js"></script>
+</body>
+</html>

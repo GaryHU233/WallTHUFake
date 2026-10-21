@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f2555a">
+  <title>帖子详情 · WallTHU 校园墙</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main>
+    <div class="container detail-wrap">
+      <a class="back-link" href="/">← 返回首页</a>
+      <div id="post-detail" aria-live="polite">
+        <div class="skeleton" style="height:260px"></div>
+      </div>
+
+      <div id="post-disclaimers"></div>
+
+      <section class="comments-section" id="comments">
+        <h2 class="section-title">
+          评论
+          <span class="count" id="comment-count"></span>
+        </h2>
+
+        <div class="comment-form-card">
+          <form id="comment-form">
+            <textarea class="textarea" name="content" id="comment-content" maxlength="500"
+                      placeholder="友善发言，理性讨论……" required></textarea>
+            <div class="comment-form-foot">
+              <label class="switch" title="匿名评论">
+                <input type="checkbox" id="comment-anon" checked>
+                <span class="track"></span>
+              </label>
+              <span style="font-size:12.5px;color:var(--muted)">匿名</span>
+              <input class="input" name="nickname" id="comment-nickname" maxlength="20"
+                     placeholder="昵称" hidden style="max-width:140px">
+              <div class="captcha-row" id="comment-captcha" style="max-width:280px"></div>
+              <button class="btn btn-primary btn-sm" type="submit" id="comment-submit">发表评论</button>
+            </div>
+            <div class="notice" style="margin-top:9px">
+              <span>💬</span>
+              <span>评论无需审核即时展示，但管理员会巡查处理违规内容。</span>
+            </div>
+          </form>
+        </div>
+
+        <div class="comment-list" id="comment-list"></div>
+        <div id="comment-empty"></div>
+      </section>
+
+      <nav class="post-nav" id="post-nav" aria-label="上一篇下一篇"></nav>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <button class="to-top" id="to-top" type="button" aria-label="回到顶部">↑</button>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/post.js"></script>
+</body>
+</html>
