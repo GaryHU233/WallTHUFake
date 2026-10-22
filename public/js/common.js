@@ -2,6 +2,8 @@
 "use strict";
 
 const CATEGORIES = ["表白捞人", "失物招领", "闲置交易", "求助问答", "树洞吐槽", "活动通知"];
+// 普通访客可选分类：活动通知仅管理员可发布
+const USER_CATEGORIES = CATEGORIES.filter((c) => c !== "活动通知");
 const REPORT_REASONS = [
   "辱骂/人身攻击", "广告/推广", "引战/挑事", "虚假信息",
   "泄露隐私", "色情/低俗", "其他",
@@ -132,7 +134,7 @@ function initHeader(active = "") {
   el.innerHTML = `
     <div class="header-inner">
       <div class="brand">
-        <a class="brand-school" href="https://this.edu.cn" target="_blank"
+        <a class="brand-school" href="https://www.this.edu.cn/index.htm" target="_blank"
            rel="noopener noreferrer" title="清华大学附属中学国际部官网">
           <img src="/img/name.png" alt="清华大学附属中学国际部">
         </a>

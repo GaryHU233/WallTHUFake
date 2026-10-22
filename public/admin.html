@@ -41,9 +41,10 @@
         <img class="logo-img" src="/img/logo.png" alt="">
         <span class="logo-text"><b>WallTHU</b><small>管理后台</small></span>
       </a>
-      <span class="admin-tag">ADMIN</span>
+      <span class="admin-tag" id="admin-identity">ADMIN</span>
       <span class="spacer"></span>
       <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换深色模式">🌙</button>
+      <button class="btn btn-sm" id="notice-btn" type="button">发布活动通知</button>
       <a class="btn btn-sm" href="/" target="_blank" rel="noopener">查看前台 ↗</a>
       <button class="btn btn-sm btn-ghost" id="logout-btn" type="button">退出</button>
     </div>
@@ -59,8 +60,9 @@
       <button class="tab" data-tab="comments" type="button">评论</button>
       <button class="tab" data-tab="reports" type="button">举报 <span class="pill" id="pill-reports" hidden>0</span></button>
       <button class="tab" data-tab="appeals" type="button">申诉 <span class="pill" id="pill-appeals" hidden>0</span></button>
-      <button class="tab" data-tab="messages" type="button">私信 <span class="pill" id="pill-messages" hidden>0</span></button>
+      <button class="tab" data-tab="messages" data-super-only type="button" hidden>私信 <span class="pill" id="pill-messages" hidden>0</span></button>
       <button class="tab" data-tab="bans" type="button">封禁</button>
+      <button class="tab" data-tab="admins" data-super-only type="button" hidden>管理员</button>
       <button class="tab" data-tab="stats" type="button">数据统计</button>
     </nav>
 

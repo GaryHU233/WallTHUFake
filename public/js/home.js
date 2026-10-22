@@ -225,7 +225,7 @@ function initPostModal() {
   const previewGrid = document.getElementById("preview-grid");
 
   select.innerHTML = `<option value="" selected disabled>请选择分类</option>` +
-    CATEGORIES.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    USER_CATEGORIES.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
   bindModalDismiss(postModal);
 
   document.getElementById("fab").addEventListener("click", openPostModal);

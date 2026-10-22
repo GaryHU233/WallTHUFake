@@ -19,6 +19,7 @@ from flask import (
     Flask, Response, abort, g, jsonify, request, send_from_directory, session,
 )
 from PIL import Image, UnidentifiedImageError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import get_db, init_db
 
@@ -101,14 +102,46 @@ def load_secret_key() -> str:
     return read_or_create(DATA_DIR / "secret_key", lambda: secrets.token_urlsafe(48))
 
 
-def load_admin_password() -> str:
-    env = os.environ.get("WALLTHU_ADMIN_PASSWORD")
-    if env:
-        return env
-    return read_or_create(
-        DATA_DIR / "admin_password",
-        lambda: secrets.token_urlsafe(12),
-    )
+ADMIN_SEED_FILE = DATA_DIR / "admin_seed.json"
+
+
+def load_admin_seed() -> list[tuple[str, str, bool]]:
+    """从 data/admin_seed.json 读取初始管理员（该文件已 gitignore，不进入仓库）。
+
+    格式：{"admins": [{"name": "大管理员", "password": "...", "is_super": true}, ...]}
+    """
+    if not ADMIN_SEED_FILE.exists():
+        return []
+    try:
+        raw = json.loads(ADMIN_SEED_FILE.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return []
+    items = raw.get("admins", []) if isinstance(raw, dict) else []
+    seeded: list[tuple[str, str, bool]] = []
+    for item in items:
+        if isinstance(item, dict) and item.get("name") and item.get("password"):
+            seeded.append((str(item["name"]), str(item["password"]), bool(item.get("is_super"))))
+    return seeded
+
+
+def seed_admins(app) -> None:
+    """首次启动时创建初始管理员；已存在则跳过。密码从种子文件读取，避免写入仓库。"""
+    with app.app_context():
+        db = get_db()
+        count = db.execute("SELECT COUNT(*) AS n FROM admins").fetchone()["n"]
+        if count != 0:
+            return
+        seeded = load_admin_seed()
+        if not seeded:
+            # 兜底：全新部署且无种子文件时，生成一个大管理员随机密码（可在后台再创建小管理员）
+            seeded = [("大管理员", secrets.token_urlsafe(9), True)]
+        for name, password, is_super in seeded:
+            db.execute(
+                "INSERT INTO admins (name, password_hash, is_super, created_at) "
+                "VALUES (?, ?, ?, ?)",
+                (name, generate_password_hash(password), int(is_super), now_utc()),
+            )
+        db.commit()
 
 
 def json_body() -> dict:
@@ -134,8 +167,7 @@ app.config.update(
     SEND_FILE_MAX_AGE_DEFAULT=0,
 )
 init_db(app)
-
-ADMIN_PASSWORD = load_admin_password()
+seed_admins(app)
 
 _login_attempts: dict[str, list[float]] = {}
 _login_lock = threading.Lock()
@@ -622,6 +654,8 @@ def api_create_post():
 
     if category not in CATEGORIES:
         return error("请选择有效的分类")
+    if category == "活动通知" and not session.get("admin_id"):
+        return error("活动通知仅管理员可发布", 403)
     if not content:
         return error("内容不能为空")
     if len(content) > MAX_CONTENT_CHARS:
@@ -980,15 +1014,38 @@ def api_send_message():
 # --------------------------------------------------------------------------
 # 管理员认证
 # --------------------------------------------------------------------------
+def _check_csrf():
+    if request.method in ("GET", "HEAD"):
+        return None
+    token = request.headers.get("X-CSRF-Token") or request.form.get("csrf")
+    if not token or not secrets.compare_digest(token, session.get("csrf", "")):
+        return error("安全校验失败，请刷新页面重试", 403)
+    return None
+
+
 def admin_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        if not session.get("is_admin"):
+        if not session.get("admin_id"):
             return error("请先登录管理员账号", 401)
-        if request.method not in ("GET", "HEAD"):
-            token = request.headers.get("X-CSRF-Token") or request.form.get("csrf")
-            if not token or not secrets.compare_digest(token, session.get("csrf", "")):
-                return error("安全校验失败，请刷新页面重试", 403)
+        csrf_err = _check_csrf()
+        if csrf_err:
+            return csrf_err
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+def super_admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if not session.get("admin_id"):
+            return error("请先登录管理员账号", 401)
+        if not session.get("is_super"):
+            return error("仅大管理员可执行此操作", 403)
+        csrf_err = _check_csrf()
+        if csrf_err:
+            return csrf_err
         return fn(*args, **kwargs)
 
     return wrapper
@@ -1009,26 +1066,50 @@ def admin_login():
         return error("尝试次数过多，请 10 分钟后再试", 429)
 
     password = str(json_body().get("password", ""))
-    if not secrets.compare_digest(password, ADMIN_PASSWORD):
+    if not password:
+        return error("请输入密码", 401)
+
+    db = get_db()
+    matched = None
+    for row in db.execute("SELECT * FROM admins ORDER BY is_super DESC, id ASC").fetchall():
+        if check_password_hash(row["password_hash"], password):
+            matched = row
+            break
+    if matched is None:
         with _login_lock:
             _login_attempts.setdefault(ip, []).append(time.time())
         return error("密码错误", 401)
 
     session.clear()
     session.permanent = True
-    session["is_admin"] = True
+    session["admin_id"] = matched["id"]
+    session["admin_name"] = matched["name"]
+    session["is_super"] = bool(matched["is_super"])
     session["csrf"] = secrets.token_urlsafe(32)
     with _login_lock:
         _login_attempts.pop(ip, None)
-    return jsonify({"ok": True, "csrf": session["csrf"]})
+    return jsonify(
+        {
+            "ok": True,
+            "csrf": session["csrf"],
+            "name": matched["name"],
+            "is_super": bool(matched["is_super"]),
+        }
+    )
 
 
 @app.get("/api/admin/me")
 def admin_me():
-    if not session.get("is_admin"):
+    if not session.get("admin_id"):
         return jsonify({"ok": True, "authenticated": False})
     return jsonify(
-        {"ok": True, "authenticated": True, "csrf": session.get("csrf", "")}
+        {
+            "ok": True,
+            "authenticated": True,
+            "csrf": session.get("csrf", ""),
+            "name": session.get("admin_name", ""),
+            "is_super": bool(session.get("is_super")),
+        }
     )
 
 
@@ -1037,6 +1118,100 @@ def admin_me():
 def admin_logout():
     session.clear()
     return jsonify({"ok": True})
+
+
+# --------------------------------------------------------------------------
+# 管理员账号管理（仅大管理员）
+# --------------------------------------------------------------------------
+@app.get("/api/admin/admins")
+@super_admin_required
+def admin_admins():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, name, is_super, created_at FROM admins "
+        "ORDER BY is_super DESC, id ASC"
+    ).fetchall()
+    me = session.get("admin_id")
+    return jsonify(
+        {
+            "ok": True,
+            "admins": [
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "is_super": bool(r["is_super"]),
+                    "created_at": r["created_at"],
+                    "is_me": r["id"] == me,
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+@app.post("/api/admin/admins")
+@super_admin_required
+def admin_create_admin():
+    data = json_body()
+    name = clean_text(data.get("name"), 20)
+    password = str(data.get("password", ""))
+    if not name:
+        return error("请填写管理员名称")
+    if not password:
+        return error("请填写密码")
+    if len(password) < 4:
+        return error("密码至少 4 位")
+
+    db = get_db()
+    if db.execute("SELECT 1 FROM admins WHERE name = ?", (name,)).fetchone():
+        return error("该名称已存在")
+    cur = db.execute(
+        "INSERT INTO admins (name, password_hash, is_super, created_at) "
+        "VALUES (?, ?, 0, ?)",
+        (name, generate_password_hash(password), now_utc()),
+    )
+    db.commit()
+    return jsonify({"ok": True, "id": cur.lastrowid})
+
+
+@app.post("/api/admin/admins/<int:admin_id>/delete")
+@super_admin_required
+def admin_delete_admin(admin_id):
+    db = get_db()
+    target = db.execute("SELECT * FROM admins WHERE id = ?", (admin_id,)).fetchone()
+    if target is None:
+        return error("管理员不存在", 404)
+    if target["is_super"]:
+        return error("不能删除大管理员", 403)
+    db.execute("DELETE FROM admins WHERE id = ?", (admin_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/notices")
+@admin_required
+def admin_create_notice():
+    content = clean_text(json_body().get("content"), MAX_CONTENT_CHARS + 1)
+    pinned = bool(json_body().get("pinned"))
+    if not content:
+        return error("内容不能为空")
+    if len(content) > MAX_CONTENT_CHARS:
+        return error(f"内容不能超过 {MAX_CONTENT_CHARS} 字")
+
+    db = get_db()
+    ts = now_utc()
+    admin_name = session.get("admin_name", "管理员")
+    cur = db.execute(
+        "INSERT INTO posts (category, content, nickname, is_anonymous, contact, "
+        "images, status, ip, visitor_id, created_at, approved_at, pinned) "
+        "VALUES ('活动通知', ?, ?, 0, '', '[]', 'approved', ?, '', ?, ?, ?)",
+        (content, admin_name, client_ip(), ts, ts, int(pinned)),
+    )
+    post_id = cur.lastrowid
+    for tag in extract_tags(content):
+        db.execute("INSERT OR IGNORE INTO post_tags (post_id, tag) VALUES (?, ?)", (post_id, tag))
+    db.commit()
+    return jsonify({"ok": True, "id": post_id, "message": "活动通知已发布"})
 
 
 # --------------------------------------------------------------------------
@@ -1321,7 +1496,7 @@ def admin_appeal_action(appeal_id):
 
 
 @app.get("/api/admin/messages")
-@admin_required
+@super_admin_required
 def admin_messages():
     db = get_db()
     rows = db.execute(
@@ -1362,7 +1537,7 @@ def admin_messages():
 
 
 @app.get("/api/admin/messages/<thread>")
-@admin_required
+@super_admin_required
 def admin_thread(thread):
     if not VID_RE.match(thread):
         return error("会话不存在", 404)
@@ -1391,7 +1566,7 @@ def admin_thread(thread):
 
 
 @app.post("/api/admin/messages/<thread>")
-@admin_required
+@super_admin_required
 def admin_send_message(thread):
     if not VID_RE.match(thread):
         return error("会话不存在", 404)

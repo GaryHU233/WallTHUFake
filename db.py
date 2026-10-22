@@ -114,6 +114,15 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread, id);
 CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(sender, read_by_admin);
+
+/* 管理员账号：is_super=1 为大管理员，其余为小管理员 */
+CREATE TABLE IF NOT EXISTS admins (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    name          TEXT    NOT NULL,
+    password_hash TEXT    NOT NULL,
+    is_super      INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL
+);
 """
 
 

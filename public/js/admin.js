@@ -9,6 +9,8 @@ let currentFilter = "";
 let canLoadMore = false;
 let loading = false;
 let statsCache = null;
+let isSuper = false;
+let adminName = "";
 
 const loginView = document.getElementById("login-view");
 const adminHeader = document.getElementById("admin-header");
@@ -22,6 +24,7 @@ const tabsEl = document.getElementById("admin-tabs");
 document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
 document.getElementById("logout-btn").addEventListener("click", logout);
 document.getElementById("login-form").addEventListener("submit", login);
+document.getElementById("notice-btn").addEventListener("click", openNoticeModal);
 adminMore.addEventListener("click", () => {
   if (!canLoadMore || loading) return;
   currentPage += 1;
@@ -44,6 +47,8 @@ async function checkAuth() {
       return;
     }
     csrf = data.csrf;
+    isSuper = !!data.is_super;
+    adminName = data.name || "";
     showAdmin();
   } catch (e) {
     showLogin();
@@ -63,6 +68,9 @@ function showAdmin() {
   adminHeader.hidden = false;
   adminMain.hidden = false;
   updateThemeIcon();
+  const identity = document.getElementById("admin-identity");
+  if (identity) identity.textContent = adminName || (isSuper ? "大管理员" : "小管理员");
+  document.querySelectorAll("[data-super-only]").forEach((el) => { el.hidden = !isSuper; });
   switchTab("all");
   loadStats();
 }
@@ -76,6 +84,8 @@ async function login(e) {
   try {
     const data = await api("/api/admin/login", { method: "POST", body: { password } });
     csrf = data.csrf;
+    isSuper = !!data.is_super;
+    adminName = data.name || "";
     form.reset();
     toast("登录成功", "success");
     showAdmin();
@@ -120,6 +130,13 @@ async function loadStats() {
 function renderTopStats() {
   if (!statsCache) return;
   const s = statsCache;
+  const msgCard = isSuper
+    ? `<div class="stat-card ${s.unread_messages ? "hot" : ""}">
+        <div class="label">未读私信</div>
+        <div class="value">${s.unread_messages}</div>
+        <div class="sub">访客留言待回复</div>
+      </div>`
+    : "";
   statsGrid.innerHTML = `
     <div class="stat-card">
       <div class="label">已发布帖子</div>
@@ -131,11 +148,7 @@ function renderTopStats() {
       <div class="value">${s.views_today}</div>
       <div class="sub">独立访客 ${s.uv_today}</div>
     </div>
-    <div class="stat-card ${s.unread_messages ? "hot" : ""}">
-      <div class="label">未读私信</div>
-      <div class="value">${s.unread_messages}</div>
-      <div class="sub">访客留言待回复</div>
-    </div>
+    ${msgCard}
     <div class="stat-card">
       <div class="label">待处理举报</div>
       <div class="value">${s.open_reports}</div>
@@ -144,7 +157,7 @@ function renderTopStats() {
 
   setPill("pill-reports", s.open_reports);
   setPill("pill-appeals", s.open_appeals);
-  setPill("pill-messages", s.unread_messages);
+  if (isSuper) setPill("pill-messages", s.unread_messages);
 }
 
 function setPill(id, value) {
@@ -174,6 +187,8 @@ function switchTab(tab) {
     loadBans();
   } else if (tab === "messages") {
     loadThreads();
+  } else if (tab === "admins") {
+    loadAdmins();
   } else {
     loadTab(false);
   }
@@ -316,7 +331,7 @@ function postItemHtml(p) {
   } else {
     actions.push(`<button class="btn btn-sm" data-act="restore" data-id="${p.id}">恢复发布</button>`);
   }
-  if (p.visitor_id) {
+  if (isSuper && p.visitor_id) {
     actions.push(`<button class="btn btn-sm" data-act="dm" data-thread="${p.visitor_id}"
       data-label="${esc(dmLabel)}">私信</button>`);
   }
@@ -365,7 +380,7 @@ function commentItemHtml(c) {
         <button class="btn btn-sm" data-act="toggle-comment" data-id="${c.id}" data-status="${c.status}">
           ${c.status === "visible" ? "隐藏" : "恢复展示"}
         </button>
-        ${c.visitor_id ? `<button class="btn btn-sm" data-act="dm"
+        ${isSuper && c.visitor_id ? `<button class="btn btn-sm" data-act="dm"
           data-thread="${c.visitor_id}" data-label="${esc(c.nickname || "匿名访客")}">私信</button>` : ""}
         <span class="spacer"></span>
         <button class="btn btn-sm btn-danger" data-act="delete-comment" data-id="${c.id}">删除</button>
@@ -488,6 +503,12 @@ adminList.addEventListener("click", async (e) => {
         body: { action: act === "appeal-resolve" ? "resolve" : "dismiss" },
       });
       toast("申诉已处理", "success");
+    } else if (act === "delete-admin") {
+      if (!confirm(`确定删除小管理员「${btn.dataset.name}」吗？该账号将无法再登录。`)) return;
+      await adminApi(`/api/admin/admins/${id}/delete`, { method: "POST" });
+      toast("已删除该小管理员", "success");
+      await Promise.all([loadAdmins(), loadStats()]);
+      return;
     }
   } catch (err) {
     toast(err.message, "error");
@@ -721,6 +742,142 @@ async function loadBans() {
   }
 }
 
+/* -------------------------------- 管理员账号 -------------------------------- */
+async function loadAdmins() {
+  adminToolbar.innerHTML = "";
+  adminMore.hidden = true;
+  adminList.innerHTML = `<div class="skeleton" style="height:100px"></div>`;
+  try {
+    const data = await adminApi("/api/admin/admins");
+    const form = `<div class="admin-item">
+        <div class="admin-item-head"><span class="badge">➕ 新增小管理员</span></div>
+        <form id="admin-create-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <input class="input" name="name" placeholder="名称，例如 小管理员4" style="flex:2;min-width:140px" maxlength="20" required>
+          <input class="input" name="password" type="text" placeholder="密码（至少 4 位）" style="flex:2;min-width:140px" maxlength="60" required>
+          <button class="btn btn-primary btn-sm" type="submit">创建</button>
+        </form>
+        <div class="notice" style="margin-top:10px">
+          <span>ℹ️</span>
+          <span>小管理员权限与大管理员一致，但不能管理管理员账号、不能查看私信；大管理员可删除小管理员。</span>
+        </div>
+      </div>`;
+    adminList.innerHTML = form + data.admins.map(adminItemHtml).join("");
+    document.getElementById("admin-create-form").addEventListener("submit", createAdmin);
+  } catch (err) {
+    adminList.innerHTML = `<div class="admin-empty">加载失败：${esc(err.message)}</div>`;
+  }
+}
+
+function adminItemHtml(a) {
+  const role = a.is_super
+    ? '<span class="badge badge-pinned">大管理员</span>'
+    : '<span class="badge badge-cat">小管理员</span>';
+  const del = (!a.is_super && !a.is_me)
+    ? `<span class="spacer"></span><button class="btn btn-sm btn-danger" data-act="delete-admin"
+         data-id="${a.id}" data-name="${esc(a.name)}">删除</button>`
+    : "";
+  return `<div class="admin-item" data-admin="${a.id}">
+      <div class="admin-item-head">
+        <span class="badge">#${a.id}</span>
+        ${role}
+        <span class="badge badge-named">${esc(a.name)}</span>
+        ${a.is_me ? '<span class="badge badge-anon">当前登录</span>' : ""}
+        <time class="time">${fmtTime(a.created_at)}</time>
+      </div>
+      <div class="admin-actions">
+        <span class="meta-line" style="margin:0">创建于 ${esc(a.created_at.replace("T", " ").replace("Z", ""))}</span>
+        ${del}
+      </div>
+    </div>`;
+}
+
+async function createAdmin(e) {
+  e.preventDefault();
+  const f = e.target;
+  const submit = f.querySelector('button[type=submit]');
+  submit.disabled = true;
+  try {
+    await adminApi("/api/admin/admins", {
+      method: "POST",
+      body: { name: f.elements.name.value.trim(), password: f.elements.password.value },
+    });
+    toast("小管理员已创建", "success");
+    loadAdmins();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    submit.disabled = false;
+  }
+}
+
+/* -------------------------------- 发布活动通知 -------------------------------- */
+let noticeModal = null;
+
+function buildNoticeModal() {
+  noticeModal = document.createElement("div");
+  noticeModal.className = "modal-overlay";
+  noticeModal.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="notice-title">
+      <div class="modal-head">
+        <h2 id="notice-title">发布活动通知</h2>
+        <button class="modal-close" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="notice-form" novalidate>
+          <div class="field">
+            <div class="field-label">通知内容 <span class="hint">最多 2000 字</span></div>
+            <textarea class="textarea" id="notice-content" maxlength="2000" rows="6"
+                      placeholder="例如：本周五 19:00 在报告厅举行社团招新…" required></textarea>
+          </div>
+          <div class="switch-row" style="margin-bottom:16px">
+            <div class="switch-text">
+              <b>置顶显示</b>
+              <span>置顶后展示在信息流顶部</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="notice-pinned">
+              <span class="track"></span>
+            </label>
+          </div>
+          <button class="btn btn-primary btn-block" type="submit">发布</button>
+        </form>
+      </div>
+    </div>`;
+  document.body.appendChild(noticeModal);
+  bindModalDismiss(noticeModal);
+  noticeModal.querySelector("#notice-form").addEventListener("submit", submitNotice);
+}
+
+function openNoticeModal() {
+  if (!noticeModal) buildNoticeModal();
+  noticeModal.querySelector("#notice-form").reset();
+  openModal(noticeModal);
+}
+
+async function submitNotice(e) {
+  e.preventDefault();
+  const form = e.target;
+  const content = form.elements.content.value.trim();
+  if (!content) return toast("内容不能为空", "error");
+  if (content.length > 2000) return toast("内容不能超过 2000 字", "error");
+  const pinned = form.elements.pinned.checked;
+  const submit = form.querySelector('button[type=submit]');
+  submit.disabled = true;
+  submit.textContent = "发布中…";
+  try {
+    const data = await adminApi("/api/admin/notices", { method: "POST", body: { content, pinned } });
+    toast(data.message || "活动通知已发布", "success");
+    closeModal(noticeModal);
+    if (currentTab === "all" || currentTab === "approved") loadTab(false);
+    loadStats();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "发布";
+  }
+}
+
 /* ---------------------------------- 统计页 -------------------------------- */
 async function loadStatsPage() {
   adminToolbar.innerHTML = "";
@@ -759,7 +916,7 @@ function renderStatsPage(s) {
       <div class="stat-card"><div class="label">已发布</div><div class="value">${s.approved_posts}</div><div class="sub">帖子</div></div>
       <div class="stat-card"><div class="label">已删除</div><div class="value">${s.deleted_posts}</div><div class="sub">帖子</div></div>
       <div class="stat-card"><div class="label">评论总数</div><div class="value">${s.total_comments}</div><div class="sub">展示中</div></div>
-      <div class="stat-card"><div class="label">未读私信</div><div class="value">${s.unread_messages}</div><div class="sub">条</div></div>
+      ${isSuper ? `<div class="stat-card"><div class="label">未读私信</div><div class="value">${s.unread_messages}</div><div class="sub">条</div></div>` : ""}
     </div>
 
     <div class="admin-item">
