@@ -131,10 +131,16 @@ function initHeader(active = "") {
   el.className = "site-header";
   el.innerHTML = `
     <div class="header-inner">
-      <a class="logo" href="/" aria-label="WallTHU 首页">
-        <span class="logo-mark">墙</span>
-        <span class="logo-text"><b>WallTHU</b><small>校园墙</small></span>
-      </a>
+      <div class="brand">
+        <a class="brand-school" href="https://this.edu.cn" target="_blank"
+           rel="noopener noreferrer" title="清华大学附属中学国际部官网">
+          <img src="/img/name.png" alt="清华大学附属中学国际部">
+        </a>
+        <a class="brand-logo" href="/" aria-label="校园墙首页">
+          <img src="/img/logo.png" alt="清华附中国际部校徽">
+        </a>
+        <span class="brand-wall">校园墙</span>
+      </div>
       <form class="header-search" id="header-search" role="search">
         <input type="search" name="q" value="${esc(q)}" maxlength="50"
                placeholder="搜索关键词，如「耳机」「图书馆」" aria-label="搜索帖子">
@@ -144,16 +150,118 @@ function initHeader(active = "") {
         <a href="/tags" class="${active === "tags" ? "active" : ""}">热门标签</a>
         <a href="/rules" class="${active === "rules" ? "active" : ""}">墙规</a>
         <a href="/about" class="${active === "about" ? "active" : ""}">关于</a>
+        <button class="chat-entry" id="chat-toggle" type="button" aria-label="私信墙主">
+          <span class="chat-icon" aria-hidden="true">💬</span><span class="chat-label">私信墙主</span><span class="chat-dot" id="chat-dot" hidden></span>
+        </button>
         <button class="icon-btn" id="theme-toggle" type="button" aria-label="切换深色模式">🌙</button>
       </nav>
     </div>`;
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+  document.getElementById("chat-toggle").addEventListener("click", openChatModal);
   updateThemeIcon();
   document.getElementById("header-search").addEventListener("submit", (e) => {
     e.preventDefault();
     const value = e.target.elements.q.value.trim();
     location.href = value ? `/?q=${encodeURIComponent(value)}` : "/";
   });
+  refreshChatBadge();
+  setInterval(refreshChatBadge, 60000);
+}
+
+/* -------------------------------- 私信墙主 -------------------------------- */
+let chatModal = null;
+
+async function refreshChatBadge() {
+  try {
+    const data = await api("/api/messages/unread");
+    const dot = document.getElementById("chat-dot");
+    if (dot) dot.hidden = !data.unread;
+  } catch (_) {
+    /* 未登录 / 网络异常时静默 */
+  }
+}
+
+function openChatModal() {
+  if (!chatModal) buildChatModal();
+  openModal(chatModal);
+  loadChatMessages();
+}
+
+function buildChatModal() {
+  chatModal = document.createElement("div");
+  chatModal.className = "modal-overlay";
+  chatModal.innerHTML = `
+    <div class="modal chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title">
+      <div class="modal-head">
+        <h2 id="chat-title">私信墙主</h2>
+        <button class="modal-close" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body chat-body">
+        <div class="notice">
+          <span>🔒</span>
+          <span>消息只有你和墙主可见。请勿发送他人隐私或与校园墙无关的广告。</span>
+        </div>
+        <div class="chat-list" id="chat-list">
+          <div class="chat-empty">加载中…</div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <textarea class="textarea" name="content" maxlength="500" rows="2"
+                    placeholder="给墙主留言，例如咨询、建议或申诉…" required></textarea>
+          <button class="btn btn-primary btn-sm" type="submit">发送</button>
+        </form>
+      </div>
+    </div>`;
+  document.body.appendChild(chatModal);
+  bindModalDismiss(chatModal);
+  chatModal.querySelector("#chat-form").addEventListener("submit", sendChatMessage);
+}
+
+async function loadChatMessages() {
+  const list = chatModal.querySelector("#chat-list");
+  try {
+    const data = await api("/api/messages");
+    if (!data.messages.length) {
+      list.innerHTML = `<div class="chat-empty">有问题、建议或申诉？<br>直接给墙主留言吧 👋</div>`;
+    } else {
+      list.innerHTML = data.messages.map(chatMessageHtml).join("");
+      list.scrollTop = list.scrollHeight;
+    }
+    const dot = document.getElementById("chat-dot");
+    if (dot) dot.hidden = true;
+  } catch (err) {
+    list.innerHTML = `<div class="chat-empty">${esc(err.message)}</div>`;
+  }
+}
+
+function chatMessageHtml(m) {
+  const mine = m.sender === "user";
+  return `<div class="chat-msg ${mine ? "mine" : "theirs"}">
+      ${mine ? "" : '<span class="chat-who">墙主</span>'}
+      <div class="chat-bubble">${esc(m.content)}</div>
+      <time class="chat-time">${fmtTime(m.created_at)}</time>
+    </div>`;
+}
+
+async function sendChatMessage(e) {
+  e.preventDefault();
+  const form = e.target;
+  const input = form.elements.content;
+  const content = input.value.trim();
+  if (!content) return toast("消息不能为空", "error");
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const data = await api("/api/messages", { method: "POST", body: { content } });
+    input.value = "";
+    const list = chatModal.querySelector("#chat-list");
+    if (list.querySelector(".chat-empty")) list.innerHTML = "";
+    list.insertAdjacentHTML("beforeend", chatMessageHtml(data.message));
+    list.scrollTop = list.scrollHeight;
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function initFooter() {
@@ -163,7 +271,7 @@ function initFooter() {
   el.innerHTML = `
     <div class="container footer-inner">
       <div class="footer-note">
-        内容仅代表发布者个人观点，与 WallTHU 运营方无关。<br>
+        内容仅代表发布者个人观点，与校园墙运营方及学校无关。本墙由学生志愿者运营，非学校官方平台。<br>
         请勿发布他人隐私信息，线下交易风险自担，谨防诈骗。
       </div>
       <div class="footer-links">
@@ -171,6 +279,7 @@ function initFooter() {
         <a href="/about">关于我们</a>
         <a href="/appeal">申诉</a>
         <a href="/tags">热门标签</a>
+        <a href="https://this.edu.cn" target="_blank" rel="noopener noreferrer">清华附中官网</a>
       </div>
     </div>`;
 }

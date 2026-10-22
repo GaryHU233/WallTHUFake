@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS posts (
     like_count    INTEGER NOT NULL DEFAULT 0,
     view_count    INTEGER NOT NULL DEFAULT 0,
     ip            TEXT    NOT NULL DEFAULT '',
+    visitor_id    TEXT    NOT NULL DEFAULT '',
     created_at    TEXT    NOT NULL,
     approved_at   TEXT
 );
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS comments (
     is_anonymous INTEGER NOT NULL DEFAULT 1,
     status       TEXT    NOT NULL DEFAULT 'visible',
     ip           TEXT    NOT NULL DEFAULT '',
+    visitor_id   TEXT    NOT NULL DEFAULT '',
     created_at   TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, id);
@@ -91,7 +93,40 @@ CREATE TABLE IF NOT EXISTS post_tags (
     PRIMARY KEY (post_id, tag)
 );
 CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag);
+
+/* 昵称锁定：同一浏览器（visitor_id）30 天内使用同一个实名昵称 */
+CREATE TABLE IF NOT EXISTS identities (
+    thread   TEXT PRIMARY KEY,
+    nickname TEXT NOT NULL,
+    set_at   TEXT NOT NULL
+);
+
+/* 私信：thread 为访客的 visitor_id，管理员与访客共用一条会话 */
+CREATE TABLE IF NOT EXISTS messages (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread        TEXT    NOT NULL,
+    sender        TEXT    NOT NULL,
+    content       TEXT    NOT NULL,
+    ip            TEXT    NOT NULL DEFAULT '',
+    read_by_user  INTEGER NOT NULL DEFAULT 0,
+    read_by_admin INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread, id);
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(sender, read_by_admin);
 """
+
+
+def _migrate(db):
+    """为旧数据库补充新增字段（CREATE TABLE IF NOT EXISTS 不会改动已有表）。"""
+    for table in ("posts", "comments"):
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if "visitor_id" not in columns:
+            db.execute(
+                f"ALTER TABLE {table} ADD COLUMN visitor_id TEXT NOT NULL DEFAULT ''"
+            )
+    db.execute("CREATE INDEX IF NOT EXISTS idx_posts_vid ON posts(visitor_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_comments_vid ON comments(visitor_id)")
 
 
 def get_db():
@@ -119,5 +154,6 @@ def init_db(app):
     with app.app_context():
         db = get_db()
         db.executescript(SCHEMA)
+        _migrate(db)
         db.commit()
     app.teardown_appcontext(close_db)

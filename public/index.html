@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f2555a">
-  <meta name="description" content="WallTHU 校园墙——匿名发帖、失物招领、闲置交易、求助问答、表白捞人。">
-  <title>WallTHU 校园墙</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#7a2f86">
+  <meta name="description" content="清华附中国际部校园墙——匿名发帖、失物招领、闲置交易、求助问答、表白捞人。">
+  <title>清华附中校园墙</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme.js"></script>
 </head>
@@ -18,7 +18,7 @@
       <section class="hero">
         <div class="hero-text">
           <h1>校园里的每一句话，都值得被听见</h1>
-          <p>匿名发帖 · 人工审核 · 友善交流</p>
+          <p>匿名发帖 · 即时发布 · 友善交流</p>
         </div>
         <a class="hero-link" href="/rules">发帖须知 →</a>
       </section>
@@ -44,7 +44,7 @@
 
       <div class="notice brand" style="margin-top:22px">
         <span>🛡️</span>
-        <span>所有帖子均经人工审核后展示。请勿发布人身攻击、挂人、广告或他人隐私信息；闲置交易请优先校内当面交易。</span>
+        <span>帖子发布后立即展示，管理员会巡查并删除违规内容。请勿发布人身攻击、挂人、广告或他人隐私信息；闲置交易请优先校内当面交易。</span>
       </div>
     </div>
   </main>
@@ -83,8 +83,12 @@
           </div>
 
           <div class="field" id="nickname-field" hidden>
-            <div class="field-label">昵称 <span class="hint">必填，最多 20 字</span></div>
+            <div class="field-label">昵称 <span class="hint" id="nickname-hint">必填，最多 20 字</span></div>
             <input class="input" name="nickname" maxlength="20" placeholder="想让别人怎么称呼你？">
+            <div class="notice" id="nickname-lock" hidden>
+              <span>🔒</span>
+              <span>实名昵称一旦设置，30 天内不可更改。</span>
+            </div>
           </div>
 
           <div class="field">
@@ -112,18 +116,13 @@
             <input class="input" name="contact" maxlength="60" placeholder="QQ / 微信（自愿填写）">
           </div>
 
-          <div class="field">
-            <div class="field-label">验证码</div>
-            <div id="post-captcha"></div>
-          </div>
-
-          <div class="notice warn">
-            <span>⏳</span>
-            <span>提交后需要管理员审核，审核通过后才会对外展示。请勿重复提交。</span>
+          <div class="notice brand">
+            <span>⚡</span>
+            <span>发布后立即公开显示。两次发帖需间隔至少 10 秒，违规内容会被管理员删除。</span>
           </div>
 
           <button class="btn btn-primary btn-block" type="submit" style="margin-top:16px">
-            提交审核
+            立即发布
           </button>
         </form>
       </div>

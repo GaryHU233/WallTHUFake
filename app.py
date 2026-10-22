@@ -4,6 +4,7 @@
 """
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -15,7 +16,7 @@ from functools import wraps
 from pathlib import Path
 
 from flask import (
-    Flask, Response, abort, jsonify, request, send_from_directory, session,
+    Flask, Response, abort, g, jsonify, request, send_from_directory, session,
 )
 from PIL import Image, UnidentifiedImageError
 
@@ -40,6 +41,14 @@ MAX_CONTENT_CHARS = 2000
 PAGE_SIZE = 10
 ADMIN_PAGE_SIZE = 20
 
+# 两次发帖最小间隔（秒）
+POST_INTERVAL = 10
+# 实名昵称锁定天数
+NICKNAME_LOCK_DAYS = 30
+# 访客标识 Cookie（用于昵称锁定与私信会话，无需登录）
+VID_COOKIE = "wallthu_vid"
+VID_RE = re.compile(r"^[0-9a-f]{32}$")
+
 
 # --------------------------------------------------------------------------
 # 基础工具
@@ -63,6 +72,22 @@ def client_ip() -> str:
         if forwarded:
             return forwarded.split(",")[0].strip()[:45]
     return request.remote_addr or "0.0.0.0"
+
+
+def visitor_id() -> str:
+    """匿名访客标识：长期 Cookie，用于昵称锁定与私信会话。
+
+    没有账号系统，同一浏览器即视为同一访客；换浏览器 / 清除 Cookie 会得到新标识。
+    """
+    if "vid" not in g:
+        raw = request.cookies.get(VID_COOKIE, "")
+        if VID_RE.match(raw or ""):
+            g.vid = raw
+            g.vid_new = False
+        else:
+            g.vid = secrets.token_hex(16)
+            g.vid_new = True
+    return g.vid
 
 
 def read_or_create(path: Path, factory) -> str:
@@ -138,6 +163,56 @@ def rate_limit_remaining(table: str, ip: str, seconds: int) -> int:
     elapsed = (datetime.now(timezone.utc) - parse_utc(row["created_at"])).total_seconds()
     remain = seconds - elapsed
     return max(0, int(remain + 0.999)) if remain > 0 else 0
+
+
+def identity_state(vid: str) -> dict:
+    """当前访客的实名昵称状态。"""
+    row = get_db().execute(
+        "SELECT nickname, set_at FROM identities WHERE thread = ?", (vid,)
+    ).fetchone()
+    if row is None:
+        return {"nickname": "", "locked": False, "days_left": 0, "unlock_at": None}
+    unlock = parse_utc(row["set_at"]) + timedelta(days=NICKNAME_LOCK_DAYS)
+    left = (unlock - datetime.now(timezone.utc)).total_seconds()
+    if left <= 0:
+        return {
+            "nickname": row["nickname"],
+            "locked": False,
+            "days_left": 0,
+            "unlock_at": unlock.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+    return {
+        "nickname": row["nickname"],
+        "locked": True,
+        "days_left": max(1, math.ceil(left / 86400)),
+        "unlock_at": unlock.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def enforce_nickname(vid: str, nickname: str):
+    """检查 30 天昵称锁；返回 (最终昵称, 错误信息)。"""
+    db = get_db()
+    row = db.execute(
+        "SELECT nickname, set_at FROM identities WHERE thread = ?", (vid,)
+    ).fetchone()
+    now = datetime.now(timezone.utc)
+    if row is not None:
+        unlock = parse_utc(row["set_at"]) + timedelta(days=NICKNAME_LOCK_DAYS)
+        if now < unlock:
+            if row["nickname"] != nickname:
+                days = max(1, math.ceil((unlock - now).total_seconds() / 86400))
+                return None, (
+                    f"你的昵称已锁定为「{row['nickname']}」，{days} 天内不能修改"
+                )
+            return nickname, None
+    db.execute(
+        "INSERT INTO identities (thread, nickname, set_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(thread) DO UPDATE SET nickname = excluded.nickname, "
+        "set_at = excluded.set_at",
+        (vid, nickname, now_utc()),
+    )
+    db.commit()
+    return nickname, None
 
 
 def check_captcha(value: str) -> bool:
@@ -278,6 +353,7 @@ PAGE_PATHS = {"/", "/rules", "/about", "/appeal", "/tags", "/admin", "/admin/log
 
 @app.before_request
 def track_visit():
+    visitor_id()  # 确保每个访客都有身份 Cookie
     if request.method == "GET" and request.path in PAGE_PATHS:
         try:
             db = get_db()
@@ -292,6 +368,14 @@ def track_visit():
 
 @app.after_request
 def security_headers(resp: Response):
+    if getattr(g, "vid_new", False) and getattr(g, "vid", ""):
+        resp.set_cookie(
+            VID_COOKIE,
+            g.vid,
+            max_age=365 * 24 * 3600,
+            httponly=True,
+            samesite="Lax",
+        )
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -366,14 +450,19 @@ def js_file(filename):
     return send_from_directory(PUBLIC_DIR / "js", filename)
 
 
+@app.get("/img/<path:filename>")
+def img_file(filename):
+    return send_from_directory(PUBLIC_DIR / "img", filename)
+
+
 @app.get("/favicon.ico")
 def favicon():
-    return send_from_directory(PUBLIC_DIR, "favicon.svg", mimetype="image/svg+xml")
+    return send_from_directory(PUBLIC_DIR, "favicon.png", mimetype="image/png")
 
 
-@app.get("/favicon.svg")
-def favicon_svg():
-    return send_from_directory(PUBLIC_DIR, "favicon.svg", mimetype="image/svg+xml")
+@app.get("/favicon.png")
+def favicon_png():
+    return send_from_directory(PUBLIC_DIR, "favicon.png", mimetype="image/png")
 
 
 @app.get("/robots.txt")
@@ -517,10 +606,11 @@ def api_posts():
 @app.post("/api/posts")
 def api_create_post():
     ip = client_ip()
+    vid = visitor_id()
     if is_banned(ip):
         return error("该网络已被禁止发帖", 403)
 
-    remain = rate_limit_remaining("posts", ip, 300)
+    remain = rate_limit_remaining("posts", ip, POST_INTERVAL)
     if remain > 0:
         return error(f"发帖太频繁啦，请 {remain} 秒后再试", 429)
 
@@ -529,7 +619,6 @@ def api_create_post():
     nickname = clean_text(request.form.get("nickname"), 20)
     contact = clean_text(request.form.get("contact"), 60)
     is_anonymous = request.form.get("is_anonymous", "1") not in ("0", "false", "False")
-    captcha = request.form.get("captcha", "")
 
     if category not in CATEGORIES:
         return error("请选择有效的分类")
@@ -539,8 +628,6 @@ def api_create_post():
         return error(f"内容不能超过 {MAX_CONTENT_CHARS} 字")
     if not is_anonymous and not nickname:
         return error("选择实名发布时，请填写一个昵称")
-    if not check_captcha(captcha):
-        return error("验证码错误，请重试")
 
     files = request.files.getlist("images")
     try:
@@ -548,10 +635,20 @@ def api_create_post():
     except ValueError as exc:
         return error(str(exc))
 
+    if not is_anonymous:
+        nickname, nick_err = enforce_nickname(vid, nickname)
+        if nick_err:
+            return error(nick_err, 409)
+    else:
+        nickname = ""
+
     db = get_db()
+    ts = now_utc()
+    # 无需人工审核：发布即公开展示；管理员保留删除 / 置顶权限
     cur = db.execute(
         "INSERT INTO posts (category, content, nickname, is_anonymous, contact, "
-        "images, status, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+        "images, status, ip, visitor_id, created_at, approved_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?, ?)",
         (
             category,
             content,
@@ -560,7 +657,9 @@ def api_create_post():
             contact,
             json.dumps(images),
             ip,
-            now_utc(),
+            vid,
+            ts,
+            ts,
         ),
     )
     post_id = cur.lastrowid
@@ -572,7 +671,7 @@ def api_create_post():
         {
             "ok": True,
             "id": post_id,
-            "message": "提交成功，等待管理员审核后展示",
+            "message": "发布成功",
         }
     )
 
@@ -663,6 +762,7 @@ def api_comments(post_id):
 @app.post("/api/posts/<int:post_id>/comments")
 def api_create_comment(post_id):
     ip = client_ip()
+    vid = visitor_id()
     if is_banned(ip):
         return error("该网络已被禁止评论", 403)
 
@@ -674,7 +774,6 @@ def api_create_comment(post_id):
     content = clean_text(data.get("content"), 501)
     nickname = clean_text(data.get("nickname"), 20)
     is_anonymous = data.get("is_anonymous", True) not in (False, 0, "0", "false")
-    captcha = data.get("captcha", "")
 
     if not content:
         return error("评论不能为空")
@@ -682,8 +781,13 @@ def api_create_comment(post_id):
         return error("评论不能超过 500 字")
     if not is_anonymous and not nickname:
         return error("实名评论时请填写昵称")
-    if not check_captcha(captcha):
-        return error("验证码错误，请重试")
+
+    if not is_anonymous:
+        nickname, nick_err = enforce_nickname(vid, nickname)
+        if nick_err:
+            return error(nick_err, 409)
+    else:
+        nickname = ""
 
     db = get_db()
     post = db.execute(
@@ -693,9 +797,9 @@ def api_create_comment(post_id):
         return error("帖子不存在", 404)
 
     cur = db.execute(
-        "INSERT INTO comments (post_id, content, nickname, is_anonymous, ip, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (post_id, content, nickname, int(is_anonymous), ip, now_utc()),
+        "INSERT INTO comments (post_id, content, nickname, is_anonymous, ip, "
+        "visitor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (post_id, content, nickname, int(is_anonymous), ip, vid, now_utc()),
     )
     db.commit()
     row = db.execute("SELECT * FROM comments WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -789,6 +893,88 @@ def api_appeal():
     )
     db.commit()
     return jsonify({"ok": True, "message": "申诉已提交，请留意管理员回复"})
+
+
+# --------------------------------------------------------------------------
+# 访客身份 / 私信
+# --------------------------------------------------------------------------
+def serialize_message(row) -> dict:
+    return {
+        "id": row["id"],
+        "sender": row["sender"],
+        "content": row["content"],
+        "created_at": row["created_at"],
+    }
+
+
+@app.get("/api/identity")
+def api_identity():
+    return jsonify({"ok": True, **identity_state(visitor_id())})
+
+
+@app.get("/api/messages")
+def api_messages():
+    vid = visitor_id()
+    db = get_db()
+    db.execute(
+        "UPDATE messages SET read_by_user = 1 "
+        "WHERE thread = ? AND sender = 'admin' AND read_by_user = 0",
+        (vid,),
+    )
+    db.commit()
+    rows = db.execute(
+        "SELECT * FROM messages WHERE thread = ? ORDER BY id ASC LIMIT 500", (vid,)
+    ).fetchall()
+    return jsonify(
+        {
+            "ok": True,
+            "messages": [serialize_message(r) for r in rows],
+        }
+    )
+
+
+@app.get("/api/messages/unread")
+def api_messages_unread():
+    count = get_db().execute(
+        "SELECT COUNT(*) AS n FROM messages WHERE thread = ? AND sender = 'admin' "
+        "AND read_by_user = 0",
+        (visitor_id(),),
+    ).fetchone()["n"]
+    return jsonify({"ok": True, "unread": count})
+
+
+@app.post("/api/messages")
+def api_send_message():
+    ip = client_ip()
+    vid = visitor_id()
+    db = get_db()
+
+    last = db.execute(
+        "SELECT created_at FROM messages WHERE thread = ? AND sender = 'user' "
+        "ORDER BY id DESC LIMIT 1",
+        (vid,),
+    ).fetchone()
+    if last is not None:
+        elapsed = (
+            datetime.now(timezone.utc) - parse_utc(last["created_at"])
+        ).total_seconds()
+        if elapsed < 3:
+            return error("发送太频繁啦，请几秒后再试", 429)
+
+    content = clean_text(json_body().get("content"), 501)
+    if not content:
+        return error("消息不能为空")
+    if len(content) > 500:
+        return error("消息不能超过 500 字")
+
+    cur = db.execute(
+        "INSERT INTO messages (thread, sender, content, ip, read_by_user, "
+        "read_by_admin, created_at) VALUES (?, 'user', ?, ?, 1, 0, ?)",
+        (vid, content, ip, now_utc()),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return jsonify({"ok": True, "message": serialize_message(row)})
 
 
 # --------------------------------------------------------------------------
@@ -897,6 +1083,7 @@ def admin_posts():
                 "status": row["status"],
                 "reject_reason": row["reject_reason"],
                 "ip": row["ip"],
+                "visitor_id": row["visitor_id"],
                 "approved_at": row["approved_at"],
             }
         )
@@ -1002,6 +1189,7 @@ def admin_comments():
                     "post_content": (r["post_content"] or "")[:80],
                     "status": r["status"],
                     "ip": r["ip"],
+                    "visitor_id": r["visitor_id"],
                 }
                 for r in rows
             ],
@@ -1132,6 +1320,107 @@ def admin_appeal_action(appeal_id):
     return jsonify({"ok": True})
 
 
+@app.get("/api/admin/messages")
+@admin_required
+def admin_messages():
+    db = get_db()
+    rows = db.execute(
+        "SELECT t.thread, t.last_id, t.unread, t.total, "
+        "  (SELECT content    FROM messages WHERE id = t.last_id) AS last_content, "
+        "  (SELECT sender     FROM messages WHERE id = t.last_id) AS last_sender, "
+        "  (SELECT created_at FROM messages WHERE id = t.last_id) AS last_at, "
+        "  (SELECT ip         FROM messages WHERE id = t.last_id) AS last_ip, "
+        "  (SELECT nickname   FROM identities WHERE thread = t.thread) AS nickname, "
+        "  (SELECT COUNT(*) FROM posts    WHERE visitor_id = t.thread) AS post_count, "
+        "  (SELECT COUNT(*) FROM comments WHERE visitor_id = t.thread) AS comment_count "
+        "FROM (SELECT thread, MAX(id) AS last_id, "
+        "        SUM(CASE WHEN sender = 'user' AND read_by_admin = 0 "
+        "                 THEN 1 ELSE 0 END) AS unread, "
+        "        COUNT(*) AS total "
+        "      FROM messages GROUP BY thread) t "
+        "ORDER BY t.last_id DESC LIMIT 200"
+    ).fetchall()
+
+    threads = []
+    for r in rows:
+        threads.append(
+            {
+                "thread": r["thread"],
+                "nickname": r["nickname"] or "",
+                "label": r["nickname"] or f"匿名访客 · {r['thread'][-6:]}",
+                "unread": r["unread"] or 0,
+                "total": r["total"],
+                "last_content": r["last_content"] or "",
+                "last_sender": r["last_sender"],
+                "last_at": r["last_at"],
+                "last_ip": r["last_ip"] or "",
+                "post_count": r["post_count"],
+                "comment_count": r["comment_count"],
+            }
+        )
+    return jsonify({"ok": True, "threads": threads})
+
+
+@app.get("/api/admin/messages/<thread>")
+@admin_required
+def admin_thread(thread):
+    if not VID_RE.match(thread):
+        return error("会话不存在", 404)
+    db = get_db()
+    db.execute(
+        "UPDATE messages SET read_by_admin = 1 "
+        "WHERE thread = ? AND sender = 'user' AND read_by_admin = 0",
+        (thread,),
+    )
+    db.commit()
+    rows = db.execute(
+        "SELECT * FROM messages WHERE thread = ? ORDER BY id ASC LIMIT 1000",
+        (thread,),
+    ).fetchall()
+    nickname = db.execute(
+        "SELECT nickname FROM identities WHERE thread = ?", (thread,)
+    ).fetchone()
+    return jsonify(
+        {
+            "ok": True,
+            "thread": thread,
+            "nickname": nickname["nickname"] if nickname else "",
+            "messages": [serialize_message(r) for r in rows],
+        }
+    )
+
+
+@app.post("/api/admin/messages/<thread>")
+@admin_required
+def admin_send_message(thread):
+    if not VID_RE.match(thread):
+        return error("会话不存在", 404)
+    content = clean_text(json_body().get("content"), 1001)
+    if not content:
+        return error("消息不能为空")
+    if len(content) > 1000:
+        return error("消息不能超过 1000 字")
+
+    db = get_db()
+    known = db.execute(
+        "SELECT 1 WHERE EXISTS(SELECT 1 FROM posts WHERE visitor_id = ?) "
+        "OR EXISTS(SELECT 1 FROM comments WHERE visitor_id = ?) "
+        "OR EXISTS(SELECT 1 FROM messages WHERE thread = ?) LIMIT 1",
+        (thread, thread, thread),
+    ).fetchone()
+    if known is None:
+        return error("找不到该访客，TA 需要先发帖或评论", 404)
+
+    cur = db.execute(
+        "INSERT INTO messages (thread, sender, content, ip, read_by_user, "
+        "read_by_admin, created_at) VALUES (?, 'admin', ?, ?, 0, 1, ?)",
+        (thread, content, client_ip(), now_utc()),
+    )
+    db.commit()
+    row = db.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()
+    return jsonify({"ok": True, "message": serialize_message(row)})
+
+
 @app.get("/api/admin/bans")
 @admin_required
 def admin_bans():
@@ -1196,9 +1485,13 @@ def admin_stats():
         "pending_posts": scalar("SELECT COUNT(*) FROM posts WHERE status = 'pending'"),
         "approved_posts": scalar("SELECT COUNT(*) FROM posts WHERE status = 'approved'"),
         "rejected_posts": scalar("SELECT COUNT(*) FROM posts WHERE status = 'rejected'"),
+        "deleted_posts": scalar("SELECT COUNT(*) FROM posts WHERE status = 'deleted'"),
         "total_comments": scalar("SELECT COUNT(*) FROM comments WHERE status = 'visible'"),
         "open_reports": scalar("SELECT COUNT(*) FROM reports WHERE status = 'open'"),
         "open_appeals": scalar("SELECT COUNT(*) FROM appeals WHERE status = 'open'"),
+        "unread_messages": scalar(
+            "SELECT COUNT(*) FROM messages WHERE sender = 'user' AND read_by_admin = 0"
+        ),
         "total_likes": scalar("SELECT COUNT(*) FROM likes"),
         "views_today": scalar("SELECT COUNT(*) FROM visits WHERE day = ?", (today,)),
         "uv_today": scalar(

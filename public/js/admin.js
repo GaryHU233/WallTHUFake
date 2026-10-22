@@ -2,7 +2,7 @@
 "use strict";
 
 let csrf = "";
-let currentTab = "pending";
+let currentTab = "all";
 let currentPage = 1;
 let currentQ = "";
 let currentFilter = "";
@@ -63,7 +63,7 @@ function showAdmin() {
   adminHeader.hidden = false;
   adminMain.hidden = false;
   updateThemeIcon();
-  switchTab("pending");
+  switchTab("all");
   loadStats();
 }
 
@@ -121,13 +121,8 @@ function renderTopStats() {
   if (!statsCache) return;
   const s = statsCache;
   statsGrid.innerHTML = `
-    <div class="stat-card hot">
-      <div class="label">待审核帖子</div>
-      <div class="value">${s.pending_posts}</div>
-      <div class="sub">需要尽快处理</div>
-    </div>
     <div class="stat-card">
-      <div class="label">已通过帖子</div>
+      <div class="label">已发布帖子</div>
       <div class="value">${s.approved_posts}</div>
       <div class="sub">线上可见</div>
     </div>
@@ -136,15 +131,20 @@ function renderTopStats() {
       <div class="value">${s.views_today}</div>
       <div class="sub">独立访客 ${s.uv_today}</div>
     </div>
+    <div class="stat-card ${s.unread_messages ? "hot" : ""}">
+      <div class="label">未读私信</div>
+      <div class="value">${s.unread_messages}</div>
+      <div class="sub">访客留言待回复</div>
+    </div>
     <div class="stat-card">
       <div class="label">待处理举报</div>
       <div class="value">${s.open_reports}</div>
       <div class="sub">待处理申诉 ${s.open_appeals}</div>
     </div>`;
 
-  setPill("pill-pending", s.pending_posts);
   setPill("pill-reports", s.open_reports);
   setPill("pill-appeals", s.open_appeals);
+  setPill("pill-messages", s.unread_messages);
 }
 
 function setPill(id, value) {
@@ -172,13 +172,15 @@ function switchTab(tab) {
     loadStatsPage();
   } else if (tab === "bans") {
     loadBans();
+  } else if (tab === "messages") {
+    loadThreads();
   } else {
     loadTab(false);
   }
 }
 
 function renderToolbar() {
-  if (["pending", "approved", "rejected"].includes(currentTab)) {
+  if (["all", "approved", "deleted"].includes(currentTab)) {
     adminToolbar.innerHTML = `
       <input class="input" id="admin-q" placeholder="搜索帖子正文…" maxlength="50" value="${esc(currentQ)}">
       <button class="btn" id="admin-search" type="button">搜索</button>
@@ -230,7 +232,7 @@ async function loadTab(append) {
     let items = [];
     let hasMore = false;
 
-    if (["pending", "approved", "rejected"].includes(currentTab)) {
+    if (["all", "approved", "deleted"].includes(currentTab)) {
       const params = new URLSearchParams({ status: currentTab, page: currentPage });
       if (currentQ) params.set("q", currentQ);
       url = `/api/admin/posts?${params}`;
@@ -277,12 +279,13 @@ async function loadTab(append) {
 
 function emptyHtml(text) {
   const map = {
-    pending: "没有待审核的帖子，辛苦了 🎉",
-    approved: "还没有已通过的帖子",
-    rejected: "没有已驳回的帖子",
+    all: "还没有帖子",
+    approved: "还没有已发布的帖子",
+    deleted: "没有已删除的帖子",
     comments: "暂无评论",
     reports: "没有待处理的举报",
     appeals: "没有待处理的申诉",
+    messages: "还没有访客私信",
   };
   return `<div class="admin-empty">${esc(text || map[currentTab] || "暂无数据")}</div>`;
 }
@@ -295,28 +298,32 @@ function postItemHtml(p) {
         .join("")}</div>`
     : "";
   const statusBadge = {
-    pending: '<span class="badge" style="background:color-mix(in srgb,var(--orange) 16%,transparent);color:var(--orange)">待审核</span>',
-    approved: '<span class="badge" style="background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)">已通过</span>',
-    rejected: '<span class="badge" style="background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)">已驳回</span>',
+    pending: '<span class="badge" style="background:color-mix(in srgb,var(--orange) 16%,transparent);color:var(--orange)">待审核（旧）</span>',
+    approved: '<span class="badge" style="background:color-mix(in srgb,var(--green) 15%,transparent);color:var(--green)">已发布</span>',
+    deleted: '<span class="badge" style="background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)">已删除</span>',
+    rejected: '<span class="badge" style="background:color-mix(in srgb,var(--danger) 12%,transparent);color:var(--danger)">已驳回（旧）</span>',
   }[p.status] || "";
 
+  const dmLabel = p.nickname || "匿名访客";
   const actions = [];
-  if (p.status !== "approved") {
-    actions.push(`<button class="btn btn-sm" data-act="approve" data-id="${p.id}">通过</button>`);
-  }
   if (p.status === "approved" && p.pinned) {
     actions.push(`<button class="btn btn-sm" data-act="unpin" data-id="${p.id}">取消置顶</button>`);
   } else if (p.status === "approved") {
     actions.push(`<button class="btn btn-sm" data-act="pin" data-id="${p.id}">置顶</button>`);
   }
-  if (p.status !== "rejected") {
-    actions.push(`<button class="btn btn-sm" data-act="reject" data-id="${p.id}">驳回</button>`);
-  }
   if (p.status === "approved") {
     actions.push(`<a class="btn btn-sm" href="/post/${p.id}" target="_blank" rel="noopener">查看</a>`);
+  } else {
+    actions.push(`<button class="btn btn-sm" data-act="restore" data-id="${p.id}">恢复发布</button>`);
   }
-  actions.push(`<span class="spacer"></span>
-    <button class="btn btn-sm btn-danger" data-act="delete" data-id="${p.id}">删除</button>`);
+  if (p.visitor_id) {
+    actions.push(`<button class="btn btn-sm" data-act="dm" data-thread="${p.visitor_id}"
+      data-label="${esc(dmLabel)}">私信</button>`);
+  }
+  if (p.status !== "deleted") {
+    actions.push(`<span class="spacer"></span>
+      <button class="btn btn-sm btn-danger" data-act="delete" data-id="${p.id}">删除</button>`);
+  }
 
   return `<div class="admin-item" data-post="${p.id}">
       <div class="admin-item-head">
@@ -358,6 +365,8 @@ function commentItemHtml(c) {
         <button class="btn btn-sm" data-act="toggle-comment" data-id="${c.id}" data-status="${c.status}">
           ${c.status === "visible" ? "隐藏" : "恢复展示"}
         </button>
+        ${c.visitor_id ? `<button class="btn btn-sm" data-act="dm"
+          data-thread="${c.visitor_id}" data-label="${esc(c.nickname || "匿名访客")}">私信</button>` : ""}
         <span class="spacer"></span>
         <button class="btn btn-sm btn-danger" data-act="delete-comment" data-id="${c.id}">删除</button>
       </div>
@@ -435,20 +444,21 @@ adminList.addEventListener("click", async (e) => {
 
   const btn = e.target.closest("[data-act]");
   if (!btn) return;
-  const id = btn.dataset.id;
   const act = btn.dataset.act;
 
+  if (act === "dm" || act === "open-thread") {
+    openAdminChat(btn.dataset.thread, btn.dataset.label);
+    return;
+  }
+
+  const id = btn.dataset.id;
+
   try {
-    if (act === "approve") {
-      await adminApi(`/api/admin/posts/${id}/status`, { method: "POST", body: { status: "approved" } });
-      toast("已通过，帖子现在对外可见", "success");
-    } else if (act === "reject") {
-      const reason = await askReason("驳回帖子", "填写驳回原因（会记录在后台，供申诉时核对）");
-      if (reason === null) return;
+    if (act === "restore") {
       await adminApi(`/api/admin/posts/${id}/status`, {
-        method: "POST", body: { status: "rejected", reason },
+        method: "POST", body: { status: "approved" },
       });
-      toast("已驳回", "success");
+      toast("已恢复发布", "success");
     } else if (act === "pin" || act === "unpin") {
       await adminApi(`/api/admin/posts/${id}/pin`, {
         method: "POST", body: { pinned: act === "pin" },
@@ -485,6 +495,142 @@ adminList.addEventListener("click", async (e) => {
   }
   await Promise.all([loadTab(false), loadStats()]);
 });
+
+/* ---------------------------------- 私信 ---------------------------------- */
+async function loadThreads() {
+  adminToolbar.innerHTML = "";
+  adminMore.hidden = true;
+  adminList.innerHTML = `<div class="skeleton" style="height:110px"></div>
+    <div class="skeleton" style="height:110px;margin-top:10px"></div>`;
+  try {
+    const data = await adminApi("/api/admin/messages");
+    adminList.innerHTML = data.threads.length
+      ? data.threads.map(threadItemHtml).join("")
+      : emptyHtml();
+  } catch (err) {
+    adminList.innerHTML = `<div class="admin-empty">加载失败：${esc(err.message)}</div>`;
+  }
+}
+
+function threadItemHtml(t) {
+  const label = t.nickname || "匿名访客";
+  return `<div class="admin-item" data-thread="${t.thread}">
+      <div class="admin-item-head">
+        <span class="badge ${t.nickname ? "badge-named" : "badge-anon"}">${t.nickname ? "🙂 " + esc(t.nickname) : label}</span>
+        ${t.unread ? `<span class="badge badge-pinned">${t.unread} 条未读</span>` : ""}
+        <span class="badge">帖子 ${t.post_count}</span>
+        <span class="badge">评论 ${t.comment_count}</span>
+        <span class="badge">IP ${esc(t.last_ip)}</span>
+        <time class="time">${fmtTime(t.last_at)}</time>
+      </div>
+      <div class="content">${t.last_sender === "admin" ? "墙主：" : ""}${esc(t.last_content)}</div>
+      <div class="admin-actions">
+        <button class="btn btn-sm btn-primary" data-act="open-thread"
+                data-thread="${t.thread}" data-label="${esc(label)}">打开会话</button>
+        <span class="spacer"></span>
+        <span class="meta-line" style="margin:0">共 ${t.total} 条消息</span>
+      </div>
+    </div>`;
+}
+
+let adminChatModal = null;
+let adminChatThread = "";
+let adminChatLabel = "";
+
+function buildAdminChatModal() {
+  adminChatModal = document.createElement("div");
+  adminChatModal.className = "modal-overlay";
+  adminChatModal.innerHTML = `
+    <div class="modal chat-modal" role="dialog" aria-modal="true" aria-labelledby="adm-chat-title">
+      <div class="modal-head">
+        <h2 id="adm-chat-title">私信</h2>
+        <button class="modal-close" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body chat-body">
+        <div class="notice">
+          <span>🔒</span>
+          <span>私信仅该访客与管理员可见。访客身份按浏览器识别，请勿在私信中索取无关隐私。</span>
+        </div>
+        <div class="chat-list admin-chat-list" id="adm-chat-list">
+          <div class="chat-empty">加载中…</div>
+        </div>
+        <form id="adm-chat-form" class="chat-form">
+          <textarea class="textarea" name="content" maxlength="1000" rows="2"
+                    placeholder="以墙主身份回复…" required></textarea>
+          <button class="btn btn-primary btn-sm" type="submit">发送</button>
+        </form>
+      </div>
+    </div>`;
+  document.body.appendChild(adminChatModal);
+  bindModalDismiss(adminChatModal);
+  adminChatModal.querySelector("#adm-chat-form").addEventListener("submit", sendAdminChatMessage);
+}
+
+async function openAdminChat(thread, label) {
+  if (!thread) return;
+  if (!adminChatModal) buildAdminChatModal();
+  adminChatThread = thread;
+  adminChatLabel = label || "访客";
+  adminChatModal.querySelector("#adm-chat-title").textContent = `私信 · ${adminChatLabel}`;
+  openModal(adminChatModal);
+  await loadAdminChat();
+}
+
+async function loadAdminChat() {
+  const list = adminChatModal.querySelector("#adm-chat-list");
+  try {
+    const data = await adminApi(`/api/admin/messages/${adminChatThread}`);
+    if (!data.messages.length) {
+      list.innerHTML = `<div class="chat-empty">还没有消息，发送第一条吧。</div>`;
+    } else {
+      list.innerHTML = data.messages.map(adminChatMessageHtml).join("");
+      list.scrollTop = list.scrollHeight;
+    }
+    if (data.nickname) {
+      adminChatLabel = data.nickname;
+      adminChatModal.querySelector("#adm-chat-title").textContent = `私信 · ${data.nickname}`;
+    }
+    loadStats();
+    if (currentTab === "messages") loadThreads();
+  } catch (err) {
+    list.innerHTML = `<div class="chat-empty">${esc(err.message)}</div>`;
+  }
+}
+
+function adminChatMessageHtml(m) {
+  const mine = m.sender === "admin";
+  return `<div class="chat-msg ${mine ? "mine" : "theirs"}">
+      ${mine ? "" : '<span class="chat-who">访客</span>'}
+      <div class="chat-bubble">${esc(m.content)}</div>
+      <time class="chat-time">${fmtTime(m.created_at)}</time>
+    </div>`;
+}
+
+async function sendAdminChatMessage(e) {
+  e.preventDefault();
+  const form = e.target;
+  const input = form.elements.content;
+  const content = input.value.trim();
+  if (!content) return toast("消息不能为空", "error");
+  const button = form.querySelector('button[type="submit"]');
+  button.disabled = true;
+  try {
+    const data = await adminApi(`/api/admin/messages/${adminChatThread}`, {
+      method: "POST",
+      body: { content },
+    });
+    input.value = "";
+    const list = adminChatModal.querySelector("#adm-chat-list");
+    if (list.querySelector(".chat-empty")) list.innerHTML = "";
+    list.insertAdjacentHTML("beforeend", adminChatMessageHtml(data.message));
+    list.scrollTop = list.scrollHeight;
+    loadStats();
+  } catch (err) {
+    toast(err.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
 
 /* ---------------------------------- 封禁 ---------------------------------- */
 async function loadBans() {
@@ -610,10 +756,10 @@ function renderStatsPage(s) {
       <div class="stat-card"><div class="label">累计访问 (PV)</div><div class="value">${s.views_total}</div><div class="sub">建站以来</div></div>
       <div class="stat-card"><div class="label">累计点赞</div><div class="value">${s.total_likes}</div><div class="sub">全部帖子</div></div>
       <div class="stat-card"><div class="label">生效封禁</div><div class="value">${s.bans}</div><div class="sub">个 IP</div></div>
-      <div class="stat-card"><div class="label">待审核</div><div class="value">${s.pending_posts}</div><div class="sub">帖子</div></div>
-      <div class="stat-card"><div class="label">已通过</div><div class="value">${s.approved_posts}</div><div class="sub">帖子</div></div>
-      <div class="stat-card"><div class="label">已驳回</div><div class="value">${s.rejected_posts}</div><div class="sub">帖子</div></div>
+      <div class="stat-card"><div class="label">已发布</div><div class="value">${s.approved_posts}</div><div class="sub">帖子</div></div>
+      <div class="stat-card"><div class="label">已删除</div><div class="value">${s.deleted_posts}</div><div class="sub">帖子</div></div>
       <div class="stat-card"><div class="label">评论总数</div><div class="value">${s.total_comments}</div><div class="sub">展示中</div></div>
+      <div class="stat-card"><div class="label">未读私信</div><div class="value">${s.unread_messages}</div><div class="sub">条</div></div>
     </div>
 
     <div class="admin-item">
@@ -632,44 +778,3 @@ function renderStatsPage(s) {
     </div>`;
 }
 
-/* ------------------------------- 驳回原因弹层 ------------------------------ */
-function askReason(title, placeholder) {
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.className = "modal-overlay open";
-    overlay.innerHTML = `
-      <div class="modal" role="dialog" aria-modal="true">
-        <div class="modal-head">
-          <h2>${esc(title)}</h2>
-          <button class="modal-close" type="button" aria-label="关闭">✕</button>
-        </div>
-        <div class="modal-body">
-          <form>
-            <div class="field">
-              <textarea class="textarea" name="reason" maxlength="200"
-                        placeholder="${esc(placeholder)}"></textarea>
-            </div>
-            <div style="display:flex;gap:9px;justify-content:flex-end">
-              <button class="btn" type="button" data-cancel>取消</button>
-              <button class="btn btn-primary" type="submit">确定</button>
-            </div>
-          </form>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const done = (value) => {
-      overlay.remove();
-      document.body.style.overflow = "";
-      resolve(value);
-    };
-    overlay.querySelector(".modal-close").addEventListener("click", () => done(null));
-    overlay.querySelector("[data-cancel]").addEventListener("click", () => done(null));
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) done(null); });
-    overlay.querySelector("form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      done(e.target.elements.reason.value.trim());
-    });
-    document.body.style.overflow = "hidden";
-    overlay.querySelector("textarea").focus();
-  });
-}

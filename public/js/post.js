@@ -10,20 +10,17 @@ const commentListEl = document.getElementById("comment-list");
 const commentEmptyEl = document.getElementById("comment-empty");
 const commentCountEl = document.getElementById("comment-count");
 const commentForm = document.getElementById("comment-form");
-const commentCaptchaBox = document.getElementById("comment-captcha");
 const anonInput = document.getElementById("comment-anon");
 const nicknameInput = document.getElementById("comment-nickname");
 const toTopBtn = document.getElementById("to-top");
 
 let currentPost = null;
+let identity = { nickname: "", locked: false, days_left: 0 };
 
 initHeader("");
 initFooter();
 bindPostActions(document.body, { navigate: false });
-commentCaptchaBox.innerHTML = captchaHtml();
-bindCaptcha(commentCaptchaBox);
-
-commentCaptchaBox.style.maxWidth = "280px";
+loadIdentity();
 
 if (!postId) {
   renderError("帖子编号无效");
@@ -135,20 +132,40 @@ function syncNicknameField() {
   const anonymous = anonInput.checked;
   nicknameInput.hidden = anonymous;
   nicknameInput.required = !anonymous;
-  if (anonymous) nicknameInput.value = "";
+  if (anonymous) {
+    nicknameInput.value = "";
+    nicknameInput.readOnly = false;
+    nicknameInput.title = "设置后 30 天内不可更改";
+    return;
+  }
+  if (identity.locked) {
+    nicknameInput.value = identity.nickname;
+    nicknameInput.readOnly = true;
+    nicknameInput.title = `昵称已锁定，${identity.days_left} 天后可更改`;
+  } else {
+    nicknameInput.readOnly = false;
+    nicknameInput.title = "设置后 30 天内不可更改";
+  }
+}
+
+async function loadIdentity() {
+  try {
+    identity = await api("/api/identity");
+  } catch (_) {
+    return;
+  }
+  syncNicknameField();
 }
 
 commentForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const content = commentForm.elements.content.value.trim();
-  const captcha = commentForm.elements.captcha.value.trim();
   const isAnonymous = anonInput.checked;
   const nickname = nicknameInput.value.trim();
 
   if (!content) return toast("评论不能为空", "error");
   if (content.length > 500) return toast("评论不能超过 500 字", "error");
   if (!isAnonymous && !nickname) return toast("请填写昵称，或打开匿名开关", "error");
-  if (!captcha) return toast("请输入验证码", "error");
 
   const submit = document.getElementById("comment-submit");
   submit.disabled = true;
@@ -160,18 +177,15 @@ commentForm.addEventListener("submit", async (e) => {
         content,
         is_anonymous: isAnonymous,
         nickname,
-        captcha,
       },
     });
     commentForm.elements.content.value = "";
-    commentForm.elements.captcha.value = "";
     appendComment(data.comment);
     toast("评论已发布", "success");
+    loadIdentity();
   } catch (err) {
     toast(err.message, "error");
-    const img = commentCaptchaBox.querySelector("[data-captcha]");
-    if (img) refreshCaptcha(img);
-    commentForm.elements.captcha.value = "";
+    if (err.status === 409) loadIdentity();
   } finally {
     submit.disabled = false;
     submit.textContent = "发表评论";

@@ -4,6 +4,7 @@
 let postModal;
 let pendingFiles = [];
 let previewUrls = [];
+let identity = { nickname: "", locked: false, days_left: 0 };
 
 const urlParams = new URLSearchParams(location.search);
 const initialCategory = urlParams.get("category") || "全部";
@@ -222,12 +223,9 @@ function initPostModal() {
   const uploadZone = document.getElementById("upload-zone");
   const imageInput = document.getElementById("image-input");
   const previewGrid = document.getElementById("preview-grid");
-  const captchaBox = document.getElementById("post-captcha");
 
   select.innerHTML = `<option value="" selected disabled>请选择分类</option>` +
     CATEGORIES.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
-  captchaBox.innerHTML = captchaHtml();
-  bindCaptcha(captchaBox);
   bindModalDismiss(postModal);
 
   document.getElementById("fab").addEventListener("click", openPostModal);
@@ -237,6 +235,7 @@ function initPostModal() {
     const nick = form.elements.nickname;
     nick.required = !anonInput.checked;
     if (anonInput.checked) nick.value = "";
+    else applyIdentityToForm();
   });
 
   contentInput.addEventListener("input", () => {
@@ -311,13 +310,11 @@ function initPostModal() {
     const content = form.elements.content.value.trim();
     const isAnonymous = anonInput.checked;
     const nickname = form.elements.nickname.value.trim();
-    const captcha = form.elements.captcha.value.trim();
 
     if (!category) return toast("请选择分类", "error");
     if (!content) return toast("正文不能为空", "error");
     if (content.length > 2000) return toast("正文不能超过 2000 字", "error");
     if (!isAnonymous && !nickname) return toast("请填写昵称，或打开匿名开关", "error");
-    if (!captcha) return toast("请输入验证码", "error");
 
     const fd = new FormData();
     fd.append("category", category);
@@ -325,22 +322,23 @@ function initPostModal() {
     fd.append("is_anonymous", isAnonymous ? "1" : "0");
     fd.append("nickname", nickname);
     fd.append("contact", form.elements.contact.value.trim());
-    fd.append("captcha", captcha);
     pendingFiles.forEach((file) => fd.append("images", file));
 
     submit.disabled = true;
     const original = submit.textContent;
-    submit.textContent = "提交中…";
+    submit.textContent = "发布中…";
     try {
       const data = await api("/api/posts", { method: "POST", body: fd });
-      toast(data.message || "提交成功，等待审核", "success");
+      toast(data.message || "发布成功", "success");
       resetForm();
       closeModal(postModal);
+      await refreshIdentity();
+      state.page = 1;
+      loadFeed(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       toast(err.message, "error");
-      const img = captchaBox.querySelector("[data-captcha]");
-      if (img) refreshCaptcha(img);
-      form.elements.captcha.value = "";
+      if (err.status === 409) refreshIdentity();
     } finally {
       submit.disabled = false;
       submit.textContent = original;
@@ -355,13 +353,44 @@ function initPostModal() {
     counter.textContent = "0 / 2000";
     pendingFiles = [];
     renderPreviews();
-    const img = captchaBox.querySelector("[data-captcha]");
-    if (img) refreshCaptcha(img);
+    applyIdentityToForm();
+  }
+}
+
+async function refreshIdentity() {
+  try {
+    identity = await api("/api/identity");
+  } catch (_) {
+    return;
+  }
+  applyIdentityToForm();
+}
+
+function applyIdentityToForm() {
+  const form = document.getElementById("post-form");
+  if (!form) return;
+  const nick = form.elements.nickname;
+  const hint = document.getElementById("nickname-hint");
+  const lock = document.getElementById("nickname-lock");
+  if (identity.locked) {
+    nick.value = identity.nickname;
+    nick.readOnly = true;
+    if (hint) hint.textContent = `已锁定，${identity.days_left} 天后可更改`;
+    if (lock) {
+      lock.hidden = false;
+      const text = lock.querySelector("span:last-child");
+      if (text) {
+        text.textContent = `实名昵称已锁定为「${identity.nickname}」，${identity.days_left} 天内不可更改。`;
+      }
+    }
+  } else {
+    nick.readOnly = false;
+    if (hint) hint.textContent = "必填，最多 20 字（设置后 30 天内不可更改）";
+    if (lock) lock.hidden = true;
   }
 }
 
 function openPostModal() {
-  const img = document.querySelector("#post-captcha [data-captcha]");
-  if (img) refreshCaptcha(img);
   openModal(postModal);
+  refreshIdentity();
 }

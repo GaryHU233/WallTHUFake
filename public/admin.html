@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f2555a">
+  <meta name="theme-color" content="#7a2f86">
   <meta name="robots" content="noindex, nofollow">
   <title>管理后台 · WallTHU</title>
-  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.png" type="image/png">
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/theme.js"></script>
 </head>
@@ -15,7 +15,7 @@
   <div class="login-wrap" id="login-view" hidden>
     <div class="login-card">
       <a class="logo" href="/">
-        <span class="logo-mark">墙</span>
+        <img class="logo-img" src="/img/logo.png" alt="">
         <span class="logo-text"><b>WallTHU</b><small>管理后台</small></span>
       </a>
       <h1>管理员登录</h1>
@@ -38,7 +38,7 @@
   <header class="admin-header" id="admin-header" hidden>
     <div class="admin-header-inner">
       <a class="logo" href="/">
-        <span class="logo-mark">墙</span>
+        <img class="logo-img" src="/img/logo.png" alt="">
         <span class="logo-text"><b>WallTHU</b><small>管理后台</small></span>
       </a>
       <span class="admin-tag">ADMIN</span>
@@ -53,12 +53,13 @@
     <div class="admin-grid" id="admin-stats"></div>
 
     <nav class="tabs" id="admin-tabs" aria-label="管理功能">
-      <button class="tab active" data-tab="pending" type="button">待审核 <span class="pill" id="pill-pending" hidden>0</span></button>
-      <button class="tab" data-tab="approved" type="button">已通过</button>
-      <button class="tab" data-tab="rejected" type="button">已驳回</button>
+      <button class="tab active" data-tab="all" type="button">全部帖子</button>
+      <button class="tab" data-tab="approved" type="button">已发布</button>
+      <button class="tab" data-tab="deleted" type="button">已删除</button>
       <button class="tab" data-tab="comments" type="button">评论</button>
       <button class="tab" data-tab="reports" type="button">举报 <span class="pill" id="pill-reports" hidden>0</span></button>
       <button class="tab" data-tab="appeals" type="button">申诉 <span class="pill" id="pill-appeals" hidden>0</span></button>
+      <button class="tab" data-tab="messages" type="button">私信 <span class="pill" id="pill-messages" hidden>0</span></button>
       <button class="tab" data-tab="bans" type="button">封禁</button>
       <button class="tab" data-tab="stats" type="button">数据统计</button>
     </nav>
