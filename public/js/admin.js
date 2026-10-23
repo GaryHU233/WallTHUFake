@@ -812,6 +812,8 @@ async function createAdmin(e) {
 
 /* -------------------------------- 发布活动通知 -------------------------------- */
 let noticeModal = null;
+let noticeFiles = [];
+let noticePreviewUrls = [];
 
 function buildNoticeModal() {
   noticeModal = document.createElement("div");
@@ -826,8 +828,18 @@ function buildNoticeModal() {
         <form id="notice-form" novalidate>
           <div class="field">
             <div class="field-label">通知内容 <span class="hint">最多 2000 字</span></div>
-            <textarea class="textarea" id="notice-content" maxlength="2000" rows="6"
+            <textarea class="textarea" id="notice-content" name="content" maxlength="2000" rows="6"
                       placeholder="例如：本周五 19:00 在报告厅举行社团招新…" required></textarea>
+          </div>
+          <div class="field">
+            <div class="field-label">图片 <span class="hint">最多 9 张，每张 ≤ 5MB，选填</span></div>
+            <div class="upload-zone" id="notice-upload-zone" tabindex="0" role="button"
+                 aria-label="点击选择图片">
+              <b>📷 点击或拖拽图片到这里</b>
+              <span>支持 JPG / PNG / GIF / WebP</span>
+            </div>
+            <input type="file" id="notice-image-input" accept="image/*" multiple hidden>
+            <div class="preview-grid" id="notice-preview-grid"></div>
           </div>
           <div class="switch-row" style="margin-bottom:16px">
             <div class="switch-text">
@@ -835,7 +847,7 @@ function buildNoticeModal() {
               <span>置顶后展示在信息流顶部</span>
             </div>
             <label class="switch">
-              <input type="checkbox" id="notice-pinned">
+              <input type="checkbox" id="notice-pinned" name="pinned">
               <span class="track"></span>
             </label>
           </div>
@@ -846,11 +858,76 @@ function buildNoticeModal() {
   document.body.appendChild(noticeModal);
   bindModalDismiss(noticeModal);
   noticeModal.querySelector("#notice-form").addEventListener("submit", submitNotice);
+
+  const uploadZone = noticeModal.querySelector("#notice-upload-zone");
+  const imageInput = noticeModal.querySelector("#notice-image-input");
+  const previewGrid = noticeModal.querySelector("#notice-preview-grid");
+  uploadZone.addEventListener("click", () => imageInput.click());
+  uploadZone.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); imageInput.click(); }
+  });
+  ["dragenter", "dragover"].forEach((evt) =>
+    uploadZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      uploadZone.classList.add("dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    uploadZone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove("dragover");
+    })
+  );
+  uploadZone.addEventListener("drop", (e) => addNoticeFiles(e.dataTransfer.files));
+  imageInput.addEventListener("change", () => {
+    addNoticeFiles(imageInput.files);
+    imageInput.value = "";
+  });
+  previewGrid.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-remove]");
+    if (!btn) return;
+    noticeFiles.splice(Number(btn.dataset.remove), 1);
+    renderNoticePreviews();
+  });
+}
+
+function addNoticeFiles(fileList) {
+  const incoming = Array.from(fileList || []);
+  for (const file of incoming) {
+    if (noticeFiles.length >= 9) {
+      toast("最多上传 9 张图片", "error");
+      break;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast(`「${file.name}」不是图片格式`, "error");
+      continue;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast(`「${file.name}」超过 5MB`, "error");
+      continue;
+    }
+    noticeFiles.push(file);
+  }
+  renderNoticePreviews();
+}
+
+function renderNoticePreviews() {
+  if (!noticeModal) return;
+  const previewGrid = noticeModal.querySelector("#notice-preview-grid");
+  noticePreviewUrls.forEach((url) => URL.revokeObjectURL(url));
+  noticePreviewUrls = noticeFiles.map((file) => URL.createObjectURL(file));
+  previewGrid.innerHTML = noticeFiles.map((file, i) => `
+    <div class="preview-item">
+      <img src="${noticePreviewUrls[i]}" alt="${esc(file.name)}">
+      <button type="button" data-remove="${i}" aria-label="移除图片">✕</button>
+    </div>`).join("");
 }
 
 function openNoticeModal() {
   if (!noticeModal) buildNoticeModal();
   noticeModal.querySelector("#notice-form").reset();
+  noticeFiles = [];
+  renderNoticePreviews();
   openModal(noticeModal);
 }
 
@@ -861,11 +938,15 @@ async function submitNotice(e) {
   if (!content) return toast("内容不能为空", "error");
   if (content.length > 2000) return toast("内容不能超过 2000 字", "error");
   const pinned = form.elements.pinned.checked;
+  const fd = new FormData();
+  fd.append("content", content);
+  fd.append("pinned", pinned ? "1" : "0");
+  noticeFiles.forEach((file) => fd.append("images", file));
   const submit = form.querySelector('button[type=submit]');
   submit.disabled = true;
   submit.textContent = "发布中…";
   try {
-    const data = await adminApi("/api/admin/notices", { method: "POST", body: { content, pinned } });
+    const data = await adminApi("/api/admin/notices", { method: "POST", body: fd });
     toast(data.message || "活动通知已发布", "success");
     closeModal(noticeModal);
     if (currentTab === "all" || currentTab === "approved") loadTab(false);

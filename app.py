@@ -1298,12 +1298,17 @@ def admin_delete_admin(admin_id):
 @app.post("/api/admin/notices")
 @admin_required
 def admin_create_notice():
-    content = clean_text(json_body().get("content"), MAX_CONTENT_CHARS + 1)
-    pinned = bool(json_body().get("pinned"))
+    content = clean_text(request.form.get("content"), MAX_CONTENT_CHARS + 1)
+    pinned = request.form.get("pinned") in ("1", "true", "True")
     if not content:
         return error("内容不能为空")
     if len(content) > MAX_CONTENT_CHARS:
         return error(f"内容不能超过 {MAX_CONTENT_CHARS} 字")
+
+    try:
+        images = process_uploads(request.files.getlist("images"))
+    except ValueError as exc:
+        return error(str(exc))
 
     db = get_db()
     ts = now_utc()
@@ -1311,8 +1316,8 @@ def admin_create_notice():
     cur = db.execute(
         "INSERT INTO posts (category, content, nickname, is_anonymous, contact, "
         "images, status, ip, visitor_id, created_at, approved_at, pinned) "
-        "VALUES ('活动通知', ?, ?, 0, '', '[]', 'approved', ?, '', ?, ?, ?)",
-        (content, admin_name, client_ip(), ts, ts, int(pinned)),
+        "VALUES ('活动通知', ?, ?, 0, '', ?, 'approved', ?, '', ?, ?, ?)",
+        (content, admin_name, json.dumps(images), client_ip(), ts, ts, int(pinned)),
     )
     post_id = cur.lastrowid
     for tag in extract_tags(content):
