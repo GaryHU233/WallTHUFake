@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7a2f86">
+  <title>我的 · 清华附中校园墙</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/theme.js"></script>
+</head>
+<body data-page="me">
+  <header id="site-header"></header>
+
+  <main class="static-page">
+    <div class="container">
+      <article class="static-card">
+        <h1>我的</h1>
+        <p class="lead">按当前浏览器识别身份：这里汇总你发布的帖子、评论，以及别人回复你的评论。</p>
+
+        <div class="admin-grid me-stats" id="me-stats">
+          <div class="stat-card"><div class="label">我发布的帖子</div><div class="value" id="stat-posts">…</div><div class="sub">可随时删除</div></div>
+          <div class="stat-card"><div class="label">我发表的评论</div><div class="value" id="stat-comments">…</div><div class="sub">含回复</div></div>
+          <div class="stat-card"><div class="label">收到的回复</div><div class="value" id="stat-replies">…</div><div class="sub">别人回复我的评论</div></div>
+        </div>
+
+        <div class="notice" style="margin:18px 0 22px">
+          <span>🔒</span>
+          <span>身份按浏览器识别（无需登录）。清除 Cookie 或更换浏览器 / 设备后，将视为新的访客。</span>
+        </div>
+
+        <h2>我的帖子</h2>
+        <div id="me-posts"><div class="skeleton" style="height:110px"></div></div>
+
+        <h2 style="margin-top:26px">我的评论</h2>
+        <div id="me-comments"><div class="skeleton" style="height:90px"></div></div>
+
+        <h2 style="margin-top:26px">谁回复了我的评论</h2>
+        <div id="me-replies"><div class="skeleton" style="height:90px"></div></div>
+      </article>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/me.js"></script>
+</body>
+</html>

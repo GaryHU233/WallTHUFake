@@ -149,6 +149,7 @@ function initHeader(active = "") {
         <button type="submit" aria-label="搜索">🔍</button>
       </form>
       <nav class="header-nav" aria-label="导航">
+        <a href="/me" class="${active === "me" ? "active" : ""}">我的</a>
         <a href="/tags" class="${active === "tags" ? "active" : ""}">热门标签</a>
         <a href="/rules" class="${active === "rules" ? "active" : ""}">墙规</a>
         <a href="/about" class="${active === "about" ? "active" : ""}">关于</a>
@@ -411,6 +412,7 @@ function postCardHtml(post, { detail = false } = {}) {
         <button class="action-btn" data-action="copy" title="复制帖子文字">📋 复制</button>
         <button class="action-btn" data-action="share" title="分享链接">🔗 分享</button>
         <button class="action-btn report" data-action="report" title="举报该帖子">🚩 举报</button>
+        ${post.is_mine ? `<button class="action-btn danger" data-action="delete" title="删除我的帖子">🗑 删除</button>` : ""}
       </div>
     </article>`;
 }
@@ -478,6 +480,22 @@ function bindPostActions(root, options = {}) {
         }
       } else if (btn.dataset.action === "report") {
         openReportModal(postId);
+      } else if (btn.dataset.action === "delete") {
+        if (!confirm("确定删除这条帖子吗？删除后将不再对外展示。")) return;
+        btn.disabled = true;
+        try {
+          await api(`/api/posts/${postId}/delete`, { method: "POST" });
+          toast("帖子已删除", "success");
+          if (location.pathname.startsWith("/post/")) {
+            location.href = "/";
+          } else {
+            card.remove();
+            document.dispatchEvent(new CustomEvent("wallthu:post-deleted", { detail: { id: postId } }));
+          }
+        } catch (err) {
+          toast(err.message, "error");
+          btn.disabled = false;
+        }
       }
       return;
     }

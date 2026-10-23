@@ -103,28 +103,131 @@ function renderComments(comments) {
     return;
   }
   commentEmptyEl.innerHTML = "";
-  commentCountEl.textContent = `${comments.length} 条`;
-  commentListEl.innerHTML = comments.map((c) => {
-    const who = c.is_anonymous
-      ? `<span class="badge badge-anon">匿名</span>`
-      : `<span class="badge badge-named">🙂 ${esc(c.nickname || "实名")}</span>`;
-    return `<div class="comment-item" data-comment-id="${c.id}">
-        <div class="comment-head">
-          ${who}
-          <time class="time" datetime="${esc(c.created_at)}">${fmtTime(c.created_at)}</time>
-        </div>
-        <div class="comment-content">${esc(c.content)}</div>
+  const repliesByParent = {};
+  comments.forEach((c) => {
+    if (c.parent_id) {
+      (repliesByParent[c.parent_id] = repliesByParent[c.parent_id] || []).push(c);
+    }
+  });
+  commentListEl.innerHTML = comments
+    .filter((c) => !c.parent_id)
+    .map((c) => commentItemHtml(c, repliesByParent[c.id] || []))
+    .join("");
+  refreshCommentCount();
+}
+
+function commentItemHtml(c, replies = []) {
+  const who = c.is_anonymous
+    ? `<span class="badge badge-anon">匿名</span>`
+    : `<span class="badge badge-named">🙂 ${esc(c.nickname || "实名")}</span>`;
+  const mine = c.is_mine ? `<span class="badge badge-mine">我的</span>` : "";
+  return `<div class="comment-item" data-comment-id="${c.id}">
+      <div class="comment-head">
+        ${who}${mine}
+        <time class="time" datetime="${esc(c.created_at)}">${fmtTime(c.created_at)}</time>
+      </div>
+      <div class="comment-content">${esc(c.content)}</div>
+      <div class="comment-actions">
+        <button class="comment-reply" type="button" data-reply-comment="${c.id}">回复</button>
         <button class="comment-report" type="button"
                 data-report-comment="${c.id}">举报这条评论</button>
-      </div>`;
-  }).join("");
+      </div>
+      <div class="reply-slot" data-reply-slot="${c.id}"></div>
+      <div class="replies">${replies.map(replyItemHtml).join("")}</div>
+    </div>`;
+}
+
+function replyItemHtml(r) {
+  const who = r.is_anonymous
+    ? `<span class="badge badge-anon">匿名</span>`
+    : `<span class="badge badge-named">🙂 ${esc(r.nickname || "实名")}</span>`;
+  return `<div class="reply-item">
+      <div class="comment-head">
+        ${who}
+        <time class="time" datetime="${esc(r.created_at)}">${fmtTime(r.created_at)}</time>
+      </div>
+      <div class="comment-content">${esc(r.content)}</div>
+    </div>`;
 }
 
 commentListEl.addEventListener("click", (e) => {
-  const btn = e.target.closest("[data-report-comment]");
-  if (!btn) return;
-  openReportModal(postId, Number(btn.dataset.reportComment));
+  const reportBtn = e.target.closest("[data-report-comment]");
+  if (reportBtn) {
+    openReportModal(postId, Number(reportBtn.dataset.reportComment));
+    return;
+  }
+  const replyBtn = e.target.closest("[data-reply-comment]");
+  if (replyBtn) {
+    openReplyForm(Number(replyBtn.dataset.replyComment));
+  }
 });
+
+function openReplyForm(commentId) {
+  const slot = commentListEl.querySelector(`[data-reply-slot="${commentId}"]`);
+  if (!slot || slot.querySelector(".reply-form")) return;
+  const anonymous = anonInput.checked;
+  const nickname = nicknameInput.value.trim();
+  const identityText = anonymous
+    ? "将以匿名身份回复"
+    : `将以「${nickname || "实名"}」回复`;
+  slot.innerHTML = `
+    <form class="reply-form">
+      <textarea class="textarea" name="content" maxlength="500" rows="2"
+                placeholder="回复这条评论…" required></textarea>
+      <div class="reply-form-bar">
+        <span class="reply-identity">${esc(identityText)}</span>
+        <button class="btn btn-primary btn-sm" type="submit">回复</button>
+      </div>
+    </form>`;
+  const ta = slot.querySelector("textarea");
+  ta.focus();
+  slot.querySelector("form").addEventListener("submit", (e) => submitReply(e, commentId));
+}
+
+async function submitReply(e, commentId) {
+  e.preventDefault();
+  const form = e.target;
+  const content = form.elements.content.value.trim();
+  const isAnonymous = anonInput.checked;
+  const nickname = nicknameInput.value.trim();
+
+  if (!content) return toast("回复不能为空", "error");
+  if (content.length > 500) return toast("回复不能超过 500 字", "error");
+  if (!isAnonymous && !nickname) return toast("请填写昵称，或打开匿名开关", "error");
+
+  const submit = form.querySelector('button[type=submit]');
+  submit.disabled = true;
+  submit.textContent = "发送中…";
+  try {
+    const data = await api(`/api/posts/${postId}/comments`, {
+      method: "POST",
+      body: { content, is_anonymous: isAnonymous, nickname, parent_id: commentId },
+    });
+    form.remove();
+    appendReply(commentId, data.comment);
+    toast("回复已发布", "success");
+    loadIdentity();
+  } catch (err) {
+    toast(err.message, "error");
+    if (err.status === 409) loadIdentity();
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "回复";
+  }
+}
+
+function appendReply(parentId, reply) {
+  const item = commentListEl.querySelector(`.comment-item[data-comment-id="${parentId}"]`);
+  if (!item) return;
+  let replies = item.querySelector(".replies");
+  if (!replies) {
+    replies = document.createElement("div");
+    replies.className = "replies";
+    item.appendChild(replies);
+  }
+  replies.insertAdjacentHTML("beforeend", replyItemHtml(reply));
+  refreshCommentCount();
+}
 
 anonInput.addEventListener("change", syncNicknameField);
 
@@ -194,23 +297,15 @@ commentForm.addEventListener("submit", async (e) => {
 
 function appendComment(comment) {
   commentEmptyEl.innerHTML = "";
-  const who = comment.is_anonymous
-    ? `<span class="badge badge-anon">匿名</span>`
-    : `<span class="badge badge-named">🙂 ${esc(comment.nickname || "实名")}</span>`;
-  commentListEl.insertAdjacentHTML("beforeend", `<div class="comment-item" data-comment-id="${comment.id}">
-      <div class="comment-head">
-        ${who}
-        <time class="time" datetime="${esc(comment.created_at)}">${fmtTime(comment.created_at)}</time>
-      </div>
-      <div class="comment-content">${esc(comment.content)}</div>
-      <button class="comment-report" type="button"
-              data-report-comment="${comment.id}">举报这条评论</button>
-    </div>`);
+  commentListEl.insertAdjacentHTML("beforeend", commentItemHtml(comment, []));
+  refreshCommentCount();
+}
 
-  const items = commentListEl.querySelectorAll(".comment-item").length;
-  commentCountEl.textContent = `${items} 条`;
+function refreshCommentCount() {
+  const n = commentListEl.querySelectorAll(".comment-item, .reply-item").length;
+  commentCountEl.textContent = `${n} 条`;
   const cardCount = detailEl.querySelector(".comment-count");
-  if (cardCount) cardCount.textContent = items;
+  if (cardCount) cardCount.textContent = n;
 }
 
 /* ------------------------------- 回到顶部等 -------------------------------- */

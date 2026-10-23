@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_ip      ON posts(ip);
 CREATE TABLE IF NOT EXISTS comments (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     post_id      INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    parent_id    INTEGER NOT NULL DEFAULT 0,
     content      TEXT    NOT NULL,
     nickname     TEXT    NOT NULL DEFAULT '',
     is_anonymous INTEGER NOT NULL DEFAULT 1,
@@ -134,8 +135,14 @@ def _migrate(db):
             db.execute(
                 f"ALTER TABLE {table} ADD COLUMN visitor_id TEXT NOT NULL DEFAULT ''"
             )
+    comment_cols = {row[1] for row in db.execute("PRAGMA table_info(comments)")}
+    if "parent_id" not in comment_cols:
+        db.execute(
+            "ALTER TABLE comments ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0"
+        )
     db.execute("CREATE INDEX IF NOT EXISTS idx_posts_vid ON posts(visitor_id)")
     db.execute("CREATE INDEX IF NOT EXISTS idx_comments_vid ON comments(visitor_id)")
+    db.execute("CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id)")
 
 
 def get_db():

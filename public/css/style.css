@@ -357,6 +357,8 @@ img { max-width: 100%; }
 .action-btn .heart { transition: transform .18s; display: inline-block; }
 .action-btn.report { margin-left: auto; font-size: 12.5px; opacity: .75; }
 .action-btn.report:hover { color: var(--danger); opacity: 1; }
+.action-btn.danger { font-size: 12.5px; opacity: .8; }
+.action-btn.danger:hover { color: var(--danger); opacity: 1; background: color-mix(in srgb, var(--danger) 8%, transparent); }
 
 /* 空状态 / 骨架 */
 .empty-state {
@@ -581,6 +583,52 @@ img { max-width: 100%; }
   font-size: 11.5px; padding: 3px 0 0; opacity: .7;
 }
 .comment-report:hover { color: var(--danger); opacity: 1; }
+.comment-actions { display: flex; gap: 14px; margin-top: 7px; }
+.comment-reply {
+  border: 0; background: transparent; color: var(--muted);
+  font-size: 11.5px; padding: 3px 0 0; opacity: .7;
+}
+.comment-reply:hover { color: var(--brand); opacity: 1; }
+.badge-mine {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand); font-size: 10.5px; padding: 2px 7px;
+}
+.replies {
+  display: flex; flex-direction: column; gap: 7px;
+  margin-top: 9px; padding-left: 14px;
+  border-left: 2px solid var(--line);
+}
+.reply-item {
+  background: var(--bg-soft); border-radius: 10px; padding: 9px 11px;
+}
+.reply-item .comment-content { font-size: 13.5px; }
+.reply-slot { margin-top: 8px; }
+.reply-form {
+  background: var(--bg-soft); border-radius: 10px; padding: 9px 11px;
+}
+.reply-form .textarea { min-height: 54px; font-size: 13.5px; }
+.reply-form-bar {
+  display: flex; align-items: center; gap: 10px; margin-top: 7px;
+}
+.reply-identity { font-size: 12px; color: var(--muted); flex: 1; }
+
+/* 「我的」页 */
+.me-stats { margin: 18px 0 0; }
+.me-item {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 13px; padding: 13px 15px; margin-bottom: 10px;
+}
+.me-item .comment-content { font-size: 14.5px; line-height: 1.7; word-break: break-word; }
+.me-meta {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 6px; font-size: 12.5px; color: var(--muted);
+}
+.me-meta a { color: var(--brand); }
+.me-reply-to {
+  margin-top: 6px; font-size: 12.5px; color: var(--muted);
+  background: var(--bg-soft); border-radius: 8px; padding: 6px 9px;
+  white-space: pre-wrap; word-break: break-word;
+}
 
 .post-nav {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px;

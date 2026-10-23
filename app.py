@@ -341,6 +341,7 @@ def extract_tags(content: str) -> list[str]:
 # --------------------------------------------------------------------------
 def serialize_post(row, detail: bool = False) -> dict:
     images = parse_images(row["images"])
+    vid = row["visitor_id"] if "visitor_id" in row.keys() else ""
     data = {
         "id": row["id"],
         "category": row["category"],
@@ -353,6 +354,7 @@ def serialize_post(row, detail: bool = False) -> dict:
         "view_count": row["view_count"],
         "comment_count": row["comment_count"] if "comment_count" in row.keys() else 0,
         "created_at": row["created_at"],
+        "is_mine": bool(vid) and vid == visitor_id(),
     }
     if detail:
         data["contact"] = row["contact"]
@@ -361,12 +363,15 @@ def serialize_post(row, detail: bool = False) -> dict:
 
 
 def serialize_comment(row) -> dict:
+    vid = row["visitor_id"] if "visitor_id" in row.keys() else ""
     return {
         "id": row["id"],
+        "parent_id": row["parent_id"] if "parent_id" in row.keys() else 0,
         "content": row["content"],
         "is_anonymous": bool(row["is_anonymous"]),
         "nickname": "" if row["is_anonymous"] else row["nickname"],
         "created_at": row["created_at"],
+        "is_mine": bool(vid) and vid == visitor_id(),
     }
 
 
@@ -380,7 +385,7 @@ POST_SELECT = """
 # --------------------------------------------------------------------------
 # 访问统计 / 安全响应头
 # --------------------------------------------------------------------------
-PAGE_PATHS = {"/", "/rules", "/about", "/appeal", "/tags", "/admin", "/admin/login"}
+PAGE_PATHS = {"/", "/rules", "/about", "/appeal", "/tags", "/me", "/admin", "/admin/login"}
 
 
 @app.before_request
@@ -460,6 +465,11 @@ def appeal_page():
 @app.get("/tags")
 def tags_page():
     return page("tags.html")
+
+
+@app.get("/me")
+def me_page():
+    return page("me.html")
 
 
 @app.get("/admin")
@@ -778,6 +788,25 @@ def api_like(post_id):
     return jsonify({"ok": True, "liked": liked_now, "like_count": count})
 
 
+@app.post("/api/posts/<int:post_id>/delete")
+def api_delete_own_post(post_id):
+    """发帖人可随时删除自己发布的帖子（软删除，前台隐藏）。"""
+    vid = visitor_id()
+    db = get_db()
+    row = db.execute(
+        "SELECT visitor_id FROM posts WHERE id = ?", (post_id,)
+    ).fetchone()
+    if row is None:
+        return error("帖子不存在", 404)
+    if row["visitor_id"] != vid:
+        return error("只能删除自己发布的帖子", 403)
+    db.execute(
+        "UPDATE posts SET status = 'deleted', pinned = 0 WHERE id = ?", (post_id,)
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.get("/api/posts/<int:post_id>/comments")
 def api_comments(post_id):
     db = get_db()
@@ -809,6 +838,13 @@ def api_create_comment(post_id):
     nickname = clean_text(data.get("nickname"), 20)
     is_anonymous = data.get("is_anonymous", True) not in (False, 0, "0", "false")
 
+    try:
+        parent_id = int(data.get("parent_id") or 0)
+    except (TypeError, ValueError):
+        parent_id = 0
+    if parent_id < 0:
+        parent_id = 0
+
     if not content:
         return error("评论不能为空")
     if len(content) > 500:
@@ -830,10 +866,18 @@ def api_create_comment(post_id):
     if post is None:
         return error("帖子不存在", 404)
 
+    if parent_id:
+        parent = db.execute(
+            "SELECT id FROM comments WHERE id = ? AND post_id = ? AND status = 'visible'",
+            (parent_id, post_id),
+        ).fetchone()
+        if parent is None:
+            return error("要回复的评论不存在", 404)
+
     cur = db.execute(
-        "INSERT INTO comments (post_id, content, nickname, is_anonymous, ip, "
-        "visitor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (post_id, content, nickname, int(is_anonymous), ip, vid, now_utc()),
+        "INSERT INTO comments (post_id, parent_id, content, nickname, is_anonymous, ip, "
+        "visitor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (post_id, parent_id, content, nickname, int(is_anonymous), ip, vid, now_utc()),
     )
     db.commit()
     row = db.execute("SELECT * FROM comments WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -944,6 +988,69 @@ def serialize_message(row) -> dict:
 @app.get("/api/identity")
 def api_identity():
     return jsonify({"ok": True, **identity_state(visitor_id())})
+
+
+@app.get("/api/me")
+def api_me():
+    """「我的」页：我发的帖子、我发的评论、以及别人回复我评论的内容。"""
+    vid = visitor_id()
+    db = get_db()
+
+    def scalar(sql, params):
+        row = db.execute(sql, params).fetchone()
+        return row[0] if row else 0
+
+    stats = {
+        "posts": scalar(
+            "SELECT COUNT(*) FROM posts WHERE visitor_id = ? AND status != 'deleted'", (vid,)
+        ),
+        "comments": scalar(
+            "SELECT COUNT(*) FROM comments WHERE visitor_id = ? AND status = 'visible'", (vid,)
+        ),
+        "replies": scalar(
+            "SELECT COUNT(*) FROM comments c JOIN comments p ON p.id = c.parent_id "
+            "WHERE p.visitor_id = ? AND c.visitor_id != ? AND c.status = 'visible'",
+            (vid, vid),
+        ),
+    }
+
+    posts = db.execute(
+        f"{POST_SELECT} WHERE p.visitor_id = ? AND p.status != 'deleted' "
+        f"ORDER BY p.id DESC LIMIT 200",
+        (vid,),
+    ).fetchall()
+
+    my_comments = db.execute(
+        "SELECT c.*, p.content AS post_content FROM comments c "
+        "LEFT JOIN posts p ON p.id = c.post_id "
+        "WHERE c.visitor_id = ? AND c.status = 'visible' "
+        "ORDER BY c.id DESC LIMIT 200",
+        (vid,),
+    ).fetchall()
+
+    replies = db.execute(
+        "SELECT c.*, parent.content AS parent_content FROM comments c "
+        "JOIN comments parent ON parent.id = c.parent_id "
+        "WHERE parent.visitor_id = ? AND c.visitor_id != ? AND c.status = 'visible' "
+        "ORDER BY c.id DESC LIMIT 200",
+        (vid, vid),
+    ).fetchall()
+
+    return jsonify(
+        {
+            "ok": True,
+            "stats": stats,
+            "posts": [serialize_post(r) for r in posts],
+            "comments": [
+                {**serialize_comment(r), "post_id": r["post_id"], "post_content": (r["post_content"] or "")[:80]}
+                for r in my_comments
+            ],
+            "replies": [
+                {**serialize_comment(r), "parent_content": (r["parent_content"] or "")[:80]}
+                for r in replies
+            ],
+        }
+    )
 
 
 @app.get("/api/messages")
