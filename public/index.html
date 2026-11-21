@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="清华附中国际部校园墙——匿名发帖、失物招领、闲置交易、求助问答、表白捞人。">
+  <title>清华附中校园墙</title>
+  <link rel="icon" href="/favicon.png" type="image/png">
+  <link rel="stylesheet" href="/css/style.css?v=2">
+  <script src="/js/theme.js?v=2"></script>
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <nav class="side-nav" aria-label="主导航">
+        <a class="side-item active" href="/">首页</a>
+        <a class="side-item" href="/me">我的</a>
+        <a class="side-item" href="/tags">热门标签</a>
+        <a class="side-item" href="/appeal">申诉</a>
+        <a class="side-item" href="/rules">墙规</a>
+        <a class="side-item" href="/about">关于</a>
+      </nav>
+      <div class="nav-separator"></div>
+      <div class="nav-label">板块</div>
+      <nav class="side-nav" id="cat-scroll" role="tablist" aria-label="帖子分类"></nav>
+      <div class="sidebar-bottom">
+        <p>清华附中国际部 · 校园墙</p>
+        <small>匿名发帖 · 即时发布 · 友善交流<br>内容不代表学校官方立场</small>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="view-bar">
+        <h1 class="view-bar-title">校园墙</h1>
+        <button class="btn btn-primary compose-button" id="fab" type="button" aria-label="发布新帖子">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          发帖
+        </button>
+      </div>
+
+      <div class="cat-bar">
+        <div class="cat-scroll" id="cat-scroll-mobile" role="tablist" aria-label="帖子分类"></div>
+      </div>
+
+      <div class="feed-toolbar">
+        <div class="sort-tabs" id="sort-tabs" role="tablist" aria-label="排序方式">
+          <button class="sort-tab active" data-sort="new" type="button">最新发布</button>
+          <button class="sort-tab" data-sort="hot" type="button">热门</button>
+          <button class="sort-tab" data-sort="pinned" type="button">置顶公告</button>
+        </div>
+        <div class="feed-count" id="feed-count"></div>
+      </div>
+
+      <div id="filter-banner"></div>
+      <section id="pinned-section" aria-label="置顶公告"></section>
+      <div class="feed" id="feed" aria-live="polite"></div>
+      <div id="feed-empty"></div>
+      <button class="load-more btn btn-ghost" id="load-more" type="button" hidden>加载更多</button>
+
+      <div class="notice" style="margin:16px">
+        <span>🛡️</span>
+        <span>帖子发布后立即展示，管理员会巡查并删除违规内容。请勿发布人身攻击、挂人、广告或他人隐私信息；闲置交易请优先校内当面交易。</span>
+      </div>
+    </main>
+
+    <aside class="right-rail">
+      <div class="rail-panel">
+        <h3>公告</h3>
+        <a class="notice-item" href="/rules">发帖须知 · 墙规<span>›</span></a>
+        <a class="notice-item" href="/appeal">帖子申诉通道<span>›</span></a>
+        <a class="notice-item" href="/about">关于校园墙<span>›</span></a>
+      </div>
+      <div class="rail-panel">
+        <h3>运营声明</h3>
+        <p>本墙由学生志愿者运营，非学校官方平台。内容仅代表发布者个人观点；请勿发布他人隐私，线下交易风险自担，谨防诈骗。</p>
+      </div>
+    </aside>
+  </div>
+
+  <footer id="site-footer"></footer>
+
+  <!-- 发帖弹层 -->
+  <div class="modal-overlay" id="post-modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="post-modal-title">
+      <div class="modal-head">
+        <h2 id="post-modal-title">发布帖子</h2>
+        <button class="modal-close" type="button" aria-label="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="post-form" novalidate>
+          <div class="field">
+            <div class="field-label">选择分类</div>
+            <select class="select" name="category" id="post-category" required></select>
+          </div>
+
+          <div class="field">
+            <div class="switch-row">
+              <div class="switch-text">
+                <b>匿名发布</b>
+                <span>关闭后将显示你填写的昵称</span>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="is-anonymous" name="is_anonymous" checked>
+                <span class="track"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field" id="nickname-field" hidden>
+            <div class="field-label">昵称 <span class="hint" id="nickname-hint">必填，最多 20 字</span></div>
+            <input class="input" name="nickname" maxlength="20" placeholder="想让别人怎么称呼你？">
+            <div class="notice" id="nickname-lock" hidden>
+              <span>🔒</span>
+              <span>实名昵称一旦设置，30 天内不可更改。</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">
+              正文内容 <span class="hint">最多 2000 字</span>
+            </div>
+            <textarea class="textarea" name="content" id="post-content" maxlength="2000"
+                      placeholder="说点什么吧……&#10;可以加上 #标签 方便别人搜索，例如 #寻物 #图书馆" required></textarea>
+            <div class="counter" id="content-counter">0 / 2000</div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">图片 <span class="hint">最多 9 张，每张 ≤ 5MB</span></div>
+            <div class="upload-zone" id="upload-zone" tabindex="0" role="button"
+                 aria-label="点击选择图片">
+              <b>📷 点击或拖拽图片到这里</b>
+              <span>支持 JPG / PNG / GIF / WebP</span>
+            </div>
+            <input type="file" id="image-input" accept="image/*" multiple hidden>
+            <div class="preview-grid" id="preview-grid"></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">语音 <span class="hint">最多 3 段，每段 ≤ 10MB</span></div>
+            <div class="upload-zone" id="audio-zone" tabindex="0" role="button"
+                 aria-label="点击选择语音">
+              <b>🎤 点击或拖拽语音到这里</b>
+              <span>支持 MP3 / M4A / WAV / OGG / AAC / AMR 等</span>
+            </div>
+            <input type="file" id="audio-input" accept="audio/*" multiple hidden>
+            <div class="audio-preview-list" id="audio-preview-list"></div>
+          </div>
+
+          <div class="field">
+            <div class="field-label">联系方式 <span class="hint">选填，会显示在帖子中</span></div>
+            <input class="input" name="contact" maxlength="60" placeholder="QQ / 微信（自愿填写）">
+          </div>
+
+          <div class="notice">
+            <span>⚡</span>
+            <span>发布后立即公开显示。两次发帖需间隔至少 10 秒，违规内容会被管理员删除。</span>
+          </div>
+
+          <button class="btn btn-primary btn-block" type="submit" style="margin-top:16px">
+            立即发布
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/common.js?v=2"></script>
+  <script src="/js/home.js?v=2"></script>
+</body>
+</html>

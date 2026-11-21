@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Runtime data & secrets — do not commit
+data/
+uploads/
+
+# Logs
+*.log
+gunicorn.log
+
+# Backups
+.backup-*/
